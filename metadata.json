@@ -1,0 +1,6 @@
+{
+  "name": "ChapterCraft - Document & Book Formatter",
+  "description": "Manuscript and document formatter supporting EPUB and HTML with embedded cover, publisher, and year metadata, 80+ document formats, literary typography, and automatic chapter structuring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
