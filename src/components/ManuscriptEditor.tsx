@@ -1,8 +1,25 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { formatDocumentText } from '../utils/parser';
-import { FormatOptions, ChapterItem } from '../types';
+import { FormatOptions, ChapterItem, BookMetadata } from '../types';
 import { SAMPLE_MANUSCRIPT, SAMPLE_SERIAL_MANUSCRIPT } from '../data/sampleDocument';
-import { Wand2, PlusCircle, Check, Copy, FileText, BookOpen, Tv, Film, Calendar, Sparkles } from 'lucide-react';
+import {
+  cleanChapterCraftExportedText,
+  isChapterCraftContent,
+} from '../utils/chaptercraftImporter';
+import {
+  Wand2,
+  PlusCircle,
+  Check,
+  Copy,
+  FileText,
+  BookOpen,
+  Tv,
+  Film,
+  Calendar,
+  Sparkles,
+  ShieldCheck,
+  RefreshCw,
+} from 'lucide-react';
 
 interface ManuscriptEditorProps {
   rawText: string;
@@ -10,6 +27,7 @@ interface ManuscriptEditorProps {
   options: FormatOptions;
   chapters: ChapterItem[];
   onSelectChapter: (id: string) => void;
+  onRestoreMetadata?: (meta: Partial<BookMetadata>) => void;
 }
 
 export function ManuscriptEditor({
@@ -18,9 +36,25 @@ export function ManuscriptEditor({
   options,
   chapters,
   onSelectChapter,
+  onRestoreMetadata,
 }: ManuscriptEditorProps) {
   const [beautifiedMessage, setBeautifiedMessage] = useState(false);
   const [copiedMessage, setCopiedMessage] = useState(false);
+  const [cleanedNotice, setCleanedNotice] = useState(false);
+
+  const isExportArtifactPresent = useMemo(() => {
+    return isChapterCraftContent(rawText);
+  }, [rawText]);
+
+  const handleCleanChapterCraft = () => {
+    const cleaned = cleanChapterCraftExportedText(rawText);
+    onChangeText(cleaned.cleanedText);
+    if (onRestoreMetadata && Object.keys(cleaned.metadata).length > 0) {
+      onRestoreMetadata(cleaned.metadata);
+    }
+    setCleanedNotice(true);
+    setTimeout(() => setCleanedNotice(false), 3500);
+  };
 
   const handleApplyFormatting = () => {
     const formatted = formatDocumentText(rawText, {
@@ -160,6 +194,37 @@ export function ManuscriptEditor({
           </button>
         </div>
       </div>
+
+      {/* ChapterCraft Re-import Artifact Detection Banner */}
+      {isExportArtifactPresent && (
+        <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-200">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-semibold text-amber-300">
+                ChapterCraft Export Artifacts Detected
+              </div>
+              <div className="text-xs text-stone-300 mt-0.5">
+                This manuscript includes exported cover badges, colophon metadata, and Table of Contents text. You can restore the clean chapter stream and apply the metadata to your book settings with one click.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleCleanChapterCraft}
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold rounded-lg text-xs flex items-center gap-2 shrink-0 shadow transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Clean Format & Extract Meta</span>
+          </button>
+        </div>
+      )}
+
+      {cleanedNotice && (
+        <div className="bg-emerald-950/50 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-2 text-xs text-emerald-300">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>ChapterCraft export artifacts stripped successfully! Clean manuscript and metadata restored.</span>
+        </div>
+      )}
 
       {/* Editor & Chapters Sidebar Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">

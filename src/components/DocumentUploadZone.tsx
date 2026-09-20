@@ -13,6 +13,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { readUploadedDocument, extractInitialMetadata } from '../utils/fileReader';
+import { cleanChapterCraftExportedText } from '../utils/chaptercraftImporter';
 import { DocumentUploadResult, BookMetadata } from '../types';
 import {
   ALL_SUPPORTED_DOCUMENT_FORMATS,
@@ -95,13 +96,19 @@ export function DocumentUploadZone({
       setErrorMessage('Please paste some text before submitting.');
       return;
     }
-    const meta = extractInitialMetadata(pasteText, 'Pasted Document');
+    const ccCleaned = cleanChapterCraftExportedText(pasteText);
+    const meta = {
+      ...extractInitialMetadata(pasteText, 'Pasted Document'),
+      ...ccCleaned.metadata,
+    };
     onDocumentLoaded(
       {
-        fileName: 'Pasted Document',
-        fileSize: new Blob([pasteText]).size,
-        fileType: 'Pasted Text',
-        rawText: pasteText,
+        fileName: meta.title ? `${meta.title}.txt` : 'Pasted Document',
+        fileSize: new Blob([ccCleaned.cleanedText]).size,
+        fileType: ccCleaned.isChapterCraft ? 'ChapterCraft Export' : 'Pasted Text',
+        rawText: ccCleaned.cleanedText,
+        metadata: meta,
+        isChapterCraft: ccCleaned.isChapterCraft,
       },
       meta
     );

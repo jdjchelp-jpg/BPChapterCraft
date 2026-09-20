@@ -162,4 +162,6 @@ export interface DocumentUploadResult {
   fileSize: number;
   fileType: string;
   rawText: string;
+  metadata?: Partial<BookMetadata>;
+  isChapterCraft?: boolean;
 }

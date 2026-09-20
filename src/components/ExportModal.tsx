@@ -7,13 +7,11 @@ import {
   Download,
   FileCode,
   FileText,
-  Printer,
   Copy,
   Check,
   X,
   BookOpen,
   Sparkles,
-  ExternalLink,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -89,19 +87,6 @@ export function ExportModal({
     downloadFile(htmlContent, `${safeName || 'book'}.html`, 'text/html;charset=utf-8');
     setHtmlSuccess(true);
     setTimeout(() => setHtmlSuccess(false), 3000);
-  };
-
-  // Fix PDF in iframe: Opens clean standalone window for printing or Save as PDF
-  const handleOpenPrintWindow = () => {
-    const htmlContent = generateStandaloneHtmlBook(metadata, chapters, options);
-    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, '_blank');
-    if (!win) {
-      // If popup blocker intervened, fallback to direct download of the print HTML
-      downloadBlob(blob, `${(metadata.title || 'book').toLowerCase().replace(/\s+/g, '-')}-printable.html`);
-      alert('Popup was blocked by your browser. The print-ready HTML book has been downloaded. Open it and select Print -> Save as PDF.');
-    }
   };
 
   // Generate Markdown with Frontmatter & TOC
@@ -265,26 +250,31 @@ export function ExportModal({
               </div>
             </button>
 
-            {/* 3. Print / Save as PDF (Fix for iframe) */}
+            {/* 3. Clean Text Manuscript (.TXT) */}
             <button
-              onClick={handleOpenPrintWindow}
+              onClick={() => {
+                const safeName = (metadata.title || 'manuscript')
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, '-')
+                  .replace(/(^-|-$)/g, '');
+                downloadFile(rawText, `${safeName || 'manuscript'}.txt`, 'text/plain;charset=utf-8');
+              }}
               className="p-4 rounded-xl border border-stone-800 bg-stone-950/80 hover:border-stone-600 hover:bg-stone-950 transition-all text-left group flex flex-col justify-between"
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="w-9 h-9 rounded-lg bg-stone-800 text-stone-300 flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <Printer className="w-5 h-5" />
+                  <FileText className="w-5 h-5" />
                 </div>
                 <span className="text-[11px] font-mono bg-stone-800 text-stone-300 px-2 py-0.5 rounded">
-                  PDF / Print
+                  .TXT
                 </span>
               </div>
               <div>
                 <p className="text-sm font-semibold text-stone-100 flex items-center gap-1.5">
-                  <span>Open Printable Window (Save PDF)</span>
-                  <ExternalLink className="w-3.5 h-3.5 text-stone-400" />
+                  <span>Clean Manuscript (.TXT)</span>
                 </p>
                 <p className="text-xs text-stone-400 mt-1 leading-relaxed">
-                  Opens clean printable manuscript in a dedicated window so you can select <span className="text-stone-300">"Save as PDF"</span> without iframe restrictions.
+                  Clean unadorned manuscript text with recognized chapter and episode breaks.
                 </p>
               </div>
             </button>

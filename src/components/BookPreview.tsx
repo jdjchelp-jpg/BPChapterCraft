@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   BookMetadata,
   ChapterItem,
@@ -8,6 +8,7 @@ import {
   BookFontFamily,
 } from '../types';
 import { formatDocumentText } from '../utils/parser';
+import { BookSidePanel } from './BookSidePanel';
 import {
   Type,
   Maximize2,
@@ -22,6 +23,10 @@ import {
   Sparkles,
   RotateCcw,
   BookOpen,
+  Volume2,
+  Sliders,
+  Play,
+  Pause,
 } from 'lucide-react';
 
 interface BookPreviewProps {
@@ -44,7 +49,159 @@ export function BookPreview({
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
   const [isContinuousScroll, setIsContinuousScroll] = useState(true);
   const [showFontMenu, setShowFontMenu] = useState(false);
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
+
+  // Text-To-Speech (TTS) Engine State
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceIndex, setSelectedVoiceIndex] = useState(0);
+  const [ttsRate, setTtsRate] = useState(1.0);
+  const [ttsPitch, setTtsPitch] = useState(1.0);
+  const [autoAdvance, setAutoAdvance] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [activeSpeakingChapter, setActiveSpeakingChapter] = useState<number | null>(null);
+  const [activeParaIndex, setActiveParaIndex] = useState<number | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Load and rank browser speech synthesis voices
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const loadVoices = () => {
+        const available = window.speechSynthesis.getVoices();
+        if (available && available.length > 0) {
+          const sorted = available.slice().sort((a, b) => {
+            const getScore = (v: SpeechSynthesisVoice) => {
+              const name = (v.name || '').toLowerCase();
+              let s = 0;
+              if (name.includes('natural') || name.includes('neural') || name.includes('online')) s += 50;
+              if (name.includes('studio') || name.includes('enhanced') || name.includes('journey')) s += 40;
+              if (name.includes('google') || name.includes('microsoft') || name.includes('apple')) s += 20;
+              if (v.lang.startsWith('en')) s += 10;
+              return s;
+            };
+            return getScore(b) - getScore(a);
+          });
+          setVoices(sorted);
+        }
+      };
+
+      loadVoices();
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+    }
+  }, []);
+
+  // Cleanup speech on unmount
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  // Stop speech playback
+  const handleStopSpeech = useCallback(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setActiveSpeakingChapter(null);
+    setActiveParaIndex(null);
+  }, []);
+
+  // Speak a specific paragraph with auto-advance and highlight
+  const speakParagraph = useCallback(
+    (chapterIdx: number, paraIdx: number) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+
+      const ch = chapters[chapterIdx];
+      if (!ch) {
+        handleStopSpeech();
+        return;
+      }
+
+      const formatted = formatDocumentText(ch.content, {
+        curlyQuotes: options.curlyQuotes,
+        emDashes: options.emDashes,
+        ellipses: options.ellipses,
+        cleanDoubleSpacing: options.cleanDoubleSpacing,
+        sceneBreakOrnament: options.sceneBreakOrnament,
+      });
+
+      const paragraphs = formatted
+        .split('\n\n')
+        .map((p) => p.trim())
+        .filter((p) => Boolean(p) && !p.includes('scene-break') && !/^\s*(\*|✦|❦|—)/.test(p));
+
+      if (paraIdx >= paragraphs.length) {
+        // Current chapter finished!
+        if (autoAdvance && chapterIdx < chapters.length - 1) {
+          const nextIdx = chapterIdx + 1;
+          setCurrentChapterIndex(nextIdx);
+          const nextEl = document.getElementById(`preview-${chapters[nextIdx].id}`);
+          nextEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          speakParagraph(nextIdx, 0);
+        } else {
+          handleStopSpeech();
+        }
+        return;
+      }
+
+      setActiveSpeakingChapter(chapterIdx);
+      setActiveParaIndex(paraIdx);
+      setIsSpeaking(true);
+      setIsPaused(false);
+
+      // Smooth scroll paragraph into view
+      const pEl = document.getElementById(`preview-p-${chapterIdx}-${paraIdx}`);
+      pEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+      const utterance = new SpeechSynthesisUtterance(paragraphs[paraIdx]);
+      if (voices[selectedVoiceIndex]) {
+        utterance.voice = voices[selectedVoiceIndex];
+      }
+      utterance.rate = ttsRate;
+      utterance.pitch = ttsPitch;
+
+      utterance.onend = () => {
+        speakParagraph(chapterIdx, paraIdx + 1);
+      };
+
+      utterance.onerror = (err) => {
+        console.warn('TTS utterance error:', err);
+        speakParagraph(chapterIdx, paraIdx + 1);
+      };
+
+      window.speechSynthesis.speak(utterance);
+    },
+    [chapters, options, autoAdvance, voices, selectedVoiceIndex, ttsRate, ttsPitch, handleStopSpeech]
+  );
+
+  const handlePlayChapter = useCallback(
+    (index: number) => {
+      setCurrentChapterIndex(index);
+      const el = document.getElementById(`preview-${chapters[index]?.id}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      speakParagraph(index, 0);
+    },
+    [chapters, speakParagraph]
+  );
+
+  const handleTogglePause = useCallback(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (isPaused) {
+      window.speechSynthesis.resume();
+      setIsPaused(false);
+    } else {
+      window.speechSynthesis.pause();
+      setIsPaused(true);
+    }
+  }, [isPaused]);
 
   // Jump to selected chapter if provided
   useEffect(() => {
@@ -107,6 +264,22 @@ export function BookPreview({
       <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs text-stone-300 shadow-md relative">
         {/* Navigation Selector */}
         <div className="flex items-center gap-2">
+          {/* Side Navigation Panel & Voice Reader Button */}
+          <button
+            onClick={() => setIsSidePanelOpen(true)}
+            className="flex items-center gap-1.5 bg-stone-950 hover:bg-stone-800 border border-stone-700 hover:border-amber-500 text-stone-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-xs"
+            title="Open Chapters & Episodes Navigation & Voice Reader (TTS Models)"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+            <span>Chapters & Audio</span>
+            <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded-full font-mono text-[10px]">
+              {chapters.length}
+            </span>
+            {isSpeaking && (
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            )}
+          </button>
+
           <button
             onClick={() => {
               const prev = Math.max(0, currentChapterIndex - 1);
@@ -441,10 +614,22 @@ export function BookPreview({
                   >
                     {ch.subtitle || ch.cleanTitle}
                   </h2>
-                  <div className="flex items-center justify-center gap-2 mt-4 text-xs opacity-50 font-sans">
+                  <div className="flex items-center justify-center gap-3 mt-4 text-xs opacity-60 font-sans">
                     <span>Page {chapterPageMap.get(ch.id)}</span>
                     <span>•</span>
                     <span>{ch.wordCount} words</span>
+                    <span>•</span>
+                    <button
+                      onClick={() => {
+                        handlePlayChapter(index);
+                        setIsSidePanelOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-semibold border border-amber-500/30 transition-colors"
+                      title="Listen to this section"
+                    >
+                      <Volume2 className="w-3 h-3" />
+                      <span>Listen</span>
+                    </button>
                   </div>
                 </header>
 
@@ -467,6 +652,8 @@ export function BookPreview({
                       );
                     }
 
+                    const isParagraphActive = activeSpeakingChapter === index && activeParaIndex === pIdx;
+
                     // Check for drop cap on first paragraph of chapter
                     const isFirstPara = pIdx === 0 && options.dropCaps && para.length > 20;
                     if (isFirstPara) {
@@ -475,7 +662,12 @@ export function BookPreview({
                       return (
                         <p
                           key={pIdx}
-                          className="leading-relaxed relative"
+                          id={`preview-p-${index}-${pIdx}`}
+                          className={`leading-relaxed relative transition-all duration-200 ${
+                            isParagraphActive
+                              ? 'bg-amber-500/15 border-l-4 border-amber-500 pl-3 py-1.5 rounded-r shadow-xs'
+                              : ''
+                          }`}
                           style={{ textIndent: 0 }}
                         >
                           <span className="float-left text-5xl font-serif font-bold leading-none pr-3 pt-1 text-amber-600 dark:text-amber-400 select-none">
@@ -489,8 +681,13 @@ export function BookPreview({
                     return (
                       <p
                         key={pIdx}
-                        className={`leading-relaxed ${
-                          options.paragraphIndent && pIdx > 0 ? 'indent-8' : ''
+                        id={`preview-p-${index}-${pIdx}`}
+                        className={`leading-relaxed transition-all duration-200 ${
+                          options.paragraphIndent && pIdx > 0 && !isParagraphActive ? 'indent-8' : ''
+                        } ${
+                          isParagraphActive
+                            ? 'bg-amber-500/15 border-l-4 border-amber-500 pl-3 py-1.5 rounded-r shadow-xs'
+                            : ''
                         }`}
                       >
                         {para}
@@ -503,6 +700,35 @@ export function BookPreview({
           })}
         </div>
       </div>
+
+      {/* Side Navigation Panel Drawer & Voice Models TTS Player */}
+      <BookSidePanel
+        isOpen={isSidePanelOpen}
+        onClose={() => setIsSidePanelOpen(false)}
+        metadata={metadata}
+        chapters={chapters}
+        currentChapterIndex={currentChapterIndex}
+        onSelectChapter={(idx) => {
+          setCurrentChapterIndex(idx);
+          const el = document.getElementById(`preview-${chapters[idx]?.id}`);
+          el?.scrollIntoView({ behavior: 'smooth' });
+        }}
+        isSpeaking={isSpeaking}
+        isPaused={isPaused}
+        onPlayChapter={handlePlayChapter}
+        onTogglePause={handleTogglePause}
+        onStop={handleStopSpeech}
+        voices={voices}
+        selectedVoiceIndex={selectedVoiceIndex}
+        onSelectVoice={setSelectedVoiceIndex}
+        rate={ttsRate}
+        onChangeRate={setTtsRate}
+        pitch={ttsPitch}
+        onChangePitch={setTtsPitch}
+        autoAdvance={autoAdvance}
+        onChangeAutoAdvance={setAutoAdvance}
+        activeParaIndex={activeParaIndex}
+      />
     </div>
   );
 }

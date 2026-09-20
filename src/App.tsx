@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { DocumentUploadZone } from './components/DocumentUploadZone';
 import { CoverManager } from './components/CoverManager';
@@ -59,6 +60,10 @@ export default function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedChapterId, setSelectedChapterId] = useState<string | undefined>(undefined);
+  const [chapterCraftNotification, setChapterCraftNotification] = useState<{
+    title: string;
+    author?: string;
+  } | null>(null);
 
   // Automatic Structure Parsing Engine
   const chapters = useMemo(() => {
@@ -73,13 +78,31 @@ export default function App() {
   // Handle uploaded document
   const handleDocumentLoaded = (result: DocumentUploadResult, autoMeta?: Partial<BookMetadata>) => {
     setRawText(result.rawText);
-    if (autoMeta) {
+    const combinedMeta = { ...autoMeta, ...result.metadata };
+    if (Object.keys(combinedMeta).length > 0) {
       setMetadata((prev) => ({
         ...prev,
-        title: autoMeta.title || prev.title,
-        author: autoMeta.author || prev.author,
+        title: combinedMeta.title || prev.title,
+        subtitle: combinedMeta.subtitle !== undefined ? combinedMeta.subtitle : prev.subtitle,
+        author: combinedMeta.author || prev.author,
+        publisher: combinedMeta.publisher || prev.publisher,
+        year: combinedMeta.year || prev.year,
+        genre: combinedMeta.genre || prev.genre,
+        synopsis: combinedMeta.synopsis || prev.synopsis,
+        isbn: combinedMeta.isbn || prev.isbn,
+        coverTheme: combinedMeta.coverTheme || prev.coverTheme,
+        coverImageUrl: combinedMeta.coverImageUrl || prev.coverImageUrl,
       }));
     }
+
+    if (result.isChapterCraft) {
+      setChapterCraftNotification({
+        title: combinedMeta.title || 'Manuscript',
+        author: combinedMeta.author,
+      });
+      setTimeout(() => setChapterCraftNotification(null), 6000);
+    }
+
     setActiveTab('preview');
   };
 
@@ -182,6 +205,7 @@ export default function App() {
             options={formatOptions}
             chapters={chapters}
             onSelectChapter={handleSelectChapter}
+            onRestoreMetadata={(meta) => setMetadata((prev) => ({ ...prev, ...meta }))}
           />
         )}
 
@@ -231,6 +255,30 @@ export default function App() {
         options={formatOptions}
         rawText={rawText}
       />
+
+      {/* ChapterCraft Re-import Toast Notification */}
+      {chapterCraftNotification && (
+        <div className="fixed bottom-6 right-6 z-50 bg-stone-900/95 text-stone-100 border border-emerald-500/50 shadow-2xl rounded-xl p-4 flex items-center gap-3.5 backdrop-blur-md max-w-md animate-in fade-in slide-in-from-bottom-3 duration-300">
+          <div className="w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wider text-emerald-400">ChapterCraft Document Restored</div>
+            <div className="text-sm font-medium text-stone-100 truncate">
+              {chapterCraftNotification.title}
+              {chapterCraftNotification.author ? ` — ${chapterCraftNotification.author}` : ''}
+            </div>
+            <div className="text-xs text-stone-400 mt-0.5">Stripped export wrappers, restored clean chapter stream & metadata.</div>
+          </div>
+          <button
+            onClick={() => setChapterCraftNotification(null)}
+            className="text-stone-400 hover:text-stone-200 p-1 text-sm leading-none"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }
