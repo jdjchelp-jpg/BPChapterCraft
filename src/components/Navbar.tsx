@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Download, Settings, RefreshCw, UploadCloud, Sparkles } from 'lucide-react';
+import { BookOpen, FileText, Download, Settings, RefreshCw, UploadCloud, Sparkles, Library } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'preview' | 'editor' | 'toc' | 'cover';
@@ -9,6 +9,8 @@ interface NavbarProps {
   onOpenExport: () => void;
   onLoadSample: () => void;
   onOpenSettings: () => void;
+  onOpenOmnibus: () => void;
+  omnibusBookCount?: number;
 }
 
 export function Navbar({
@@ -20,6 +22,8 @@ export function Navbar({
   onOpenExport,
   onLoadSample,
   onOpenSettings,
+  onOpenOmnibus,
+  omnibusBookCount,
 }: NavbarProps) {
   return (
     <header className="sticky top-0 z-40 bg-stone-900 text-stone-100 border-b border-stone-800 shadow-md">
@@ -105,6 +109,20 @@ export function Navbar({
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
             <span>Sample Doc</span>
+          </button>
+
+          <button
+            onClick={onOpenOmnibus}
+            title="Multi-Book Omnibus Binder: Combine multiple books / HTML files into 1 file and reorder them"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium bg-gradient-to-r from-amber-500/15 to-amber-600/15 hover:from-amber-500/25 hover:to-amber-600/25 text-amber-300 border border-amber-500/40 rounded-lg transition-all shadow-xs"
+          >
+            <Library className="w-4 h-4 text-amber-400" />
+            <span className="hidden lg:inline">Omnibus Binder</span>
+            {omnibusBookCount && omnibusBookCount > 1 ? (
+              <span className="px-1.5 py-0.2 bg-amber-500 text-stone-950 rounded-full text-[10px] font-bold">
+                {omnibusBookCount} bks
+              </span>
+            ) : null}
           </button>
 
           <button

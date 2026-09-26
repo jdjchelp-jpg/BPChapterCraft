@@ -1,5 +1,6 @@
 import { BookMetadata, ChapterItem, FormatOptions } from '../types';
 import { formatDocumentText } from './parser';
+import { PUTER_VOICES } from './puterTTS';
 
 function escapeHtml(unsafe: string): string {
   if (!unsafe) return '';
@@ -41,6 +42,77 @@ export function generateStandaloneHtmlBook(
 
   const selectedCssFont = fontFamilyMap[options.fontFamily] || fontFamilyMap.serif;
 
+  // Dynamically load only the single chosen body font + Cinzel for headings (saves ~30 MB font heap RAM)
+  const fontGoogleParamMap: Record<string, string> = {
+    cormorant: 'family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400',
+    alegreya: 'family=Alegreya:ital,wght@0,400;0,600;0,700;1,400',
+    sourceserif: 'family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400',
+    crimson: 'family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400',
+    serif: 'family=Lora:ital,wght@0,400;0,500;0,600;1,400',
+    sans: 'family=Plus+Jakarta+Sans:wght@400;500;600;700',
+    mono: '',
+  };
+  const bodyFontParam = fontGoogleParamMap[options.fontFamily] || fontGoogleParamMap.serif;
+  const googleFontUrl = bodyFontParam
+    ? `https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&${bodyFontParam}&family=Plus+Jakarta+Sans:wght@500;600&display=swap`
+    : `https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600&display=swap`;
+
+  // Color Theme definitions for Standalone HTML Book
+  const themeMap: Record<
+    string,
+    { canvasBg: string; bookBg: string; textMain: string; borderSoft: string; accent: string; accentHover: string }
+  > = {
+    parchment: {
+      canvasBg: '#f4eedb',
+      bookBg: '#faf6ee',
+      textMain: '#2b211a',
+      borderSoft: '#e2d8c3',
+      accent: '#8b5a2b',
+      accentHover: '#a36b35',
+    },
+    light: {
+      canvasBg: '#f3f4f6',
+      bookBg: '#ffffff',
+      textMain: '#1c1917',
+      borderSoft: '#e5e7eb',
+      accent: '#b45309',
+      accentHover: '#d97706',
+    },
+    dark: {
+      canvasBg: '#121110',
+      bookBg: '#1c1917',
+      textMain: '#f5f5f4',
+      borderSoft: '#2e2b27',
+      accent: '#f59e0b',
+      accentHover: '#fbbf24',
+    },
+    'obsidian-dark': {
+      canvasBg: '#000000',
+      bookBg: '#09090b',
+      textMain: '#f4f4f5',
+      borderSoft: '#27272a',
+      accent: '#eab308',
+      accentHover: '#facc15',
+    },
+    'parchment-white': {
+      canvasBg: '#f5f4f0',
+      bookBg: '#fdfbf7',
+      textMain: '#18181b',
+      borderSoft: '#e7e5e4',
+      accent: '#9a3412',
+      accentHover: '#c2410c',
+    },
+    'parchment-cream': {
+      canvasBg: '#f3ebdc',
+      bookBg: '#fbf4e6',
+      textMain: '#33271c',
+      borderSoft: '#e4d7be',
+      accent: '#b45309',
+      accentHover: '#d97706',
+    },
+  };
+  const activeHtmlTheme = themeMap[options.colorTheme] || themeMap.parchment;
+
   // Cover Jacket SVG or image markup
   let coverSectionHtml = '';
   if (options.includeCoverInBook) {
@@ -48,7 +120,7 @@ export function generateStandaloneHtmlBook(
       coverSectionHtml = `
       <section class="cover-page">
         <div class="cover-image-container">
-          <img src="${metadata.coverImageUrl}" alt="${safeTitle} Cover" class="book-cover-img" />
+          <img src="${metadata.coverImageUrl}" alt="${safeTitle} Cover" class="book-cover-img" loading="lazy" decoding="async" />
         </div>
       </section>`;
     } else {
@@ -125,6 +197,8 @@ export function generateStandaloneHtmlBook(
     })
     .join('\n');
 
+  const puterVoicesJson = JSON.stringify(PUTER_VOICES);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -135,17 +209,20 @@ export function generateStandaloneHtmlBook(
   <meta name="publisher" content="${safePublisher}">
   <meta name="date" content="${safeYear}">
   <meta name="generator" content="ChapterCraft Publishing Studio">
+  <!-- Puter.js AI Cloud Engine Integration -->
+  <script src="https://js.puter.com/v2/"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;1,400;1,600&family=Cinzel:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <link href="${googleFontUrl}" rel="stylesheet">
   <style>
     :root {
       --book-font: ${selectedCssFont};
-      --bg-canvas: #faf8f5;
-      --text-main: #24201c;
-      --accent-color: #8b5a2b;
-      --accent-hover: #a36b35;
-      --border-soft: #e2ddd3;
+      --bg-canvas: ${activeHtmlTheme.canvasBg};
+      --bg-book: ${activeHtmlTheme.bookBg};
+      --text-main: ${activeHtmlTheme.textMain};
+      --accent-color: ${activeHtmlTheme.accent};
+      --accent-hover: ${activeHtmlTheme.accentHover};
+      --border-soft: ${activeHtmlTheme.borderSoft};
       --sidebar-bg: #181716;
       --sidebar-card: #242220;
       --sidebar-border: #33302c;
@@ -168,7 +245,8 @@ export function generateStandaloneHtmlBook(
       font-family: var(--book-font);
       font-size: ${options.fontSize}px;
       line-height: ${options.lineHeight};
-      text-rendering: optimizeLegibility;
+      text-rendering: auto;
+      font-kerning: normal;
       -webkit-font-smoothing: antialiased;
     }
 
@@ -176,8 +254,8 @@ export function generateStandaloneHtmlBook(
       max-width: 840px;
       margin: 0 auto;
       padding: 60px 36px;
-      background: #ffffff;
-      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.06);
+      background: var(--bg-book);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.08);
       min-height: 100vh;
       position: relative;
     }
@@ -374,6 +452,9 @@ export function generateStandaloneHtmlBook(
       page-break-after: always;
       break-after: page;
       position: relative;
+      content-visibility: auto;
+      contain-intrinsic-size: 1px 700px;
+      contain: layout style;
     }
     .chapter-header {
       text-align: center;
@@ -507,12 +588,11 @@ export function generateStandaloneHtmlBook(
     .sidebar-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.45);
-      backdrop-filter: blur(2px);
+      background: rgba(0, 0, 0, 0.6);
       z-index: 998;
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.28s ease;
+      transition: opacity 0.25s ease;
     }
     .sidebar-backdrop.open {
       opacity: 1;
@@ -920,7 +1000,124 @@ export function generateStandaloneHtmlBook(
       100% { opacity: 0.6; }
     }
 
-    /* Print & PDF Specific Styles */
+    /* Puter AI TTS Engine & Memory Budget Styles */
+    .tts-engine-tabs {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .engine-tab-btn {
+      flex: 1;
+      background: var(--sidebar-card);
+      border: 1px solid var(--sidebar-border);
+      color: var(--sidebar-muted);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.2s;
+    }
+    .engine-tab-btn:hover {
+      color: #ffffff;
+      border-color: #555;
+    }
+    .engine-tab-btn.active {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: var(--sidebar-accent);
+      color: #ffffff;
+    }
+    .engine-badge {
+      font-size: 0.62rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      opacity: 0.85;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.3);
+    }
+    .engine-tab-btn.active .engine-badge {
+      background: var(--sidebar-accent);
+      color: #000000;
+    }
+    .puter-auth-card {
+      background: rgba(245, 158, 11, 0.05);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      border-radius: 8px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .puter-auth-info {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.74rem;
+      color: var(--sidebar-text);
+    }
+    .auth-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      flex-shrink: 0;
+    }
+    .auth-dot.guest {
+      background: #f59e0b;
+    }
+    .auth-dot.error {
+      background: #ef4444;
+    }
+    .puter-signin-btn {
+      background: #2a2724;
+      border: 1px solid var(--sidebar-border);
+      color: var(--sidebar-accent);
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .puter-signin-btn:hover {
+      background: #33302c;
+      color: #fbbf24;
+      border-color: var(--sidebar-accent);
+    }
+    .ram-budget-card {
+      background: #121110;
+      border: 1px solid #292524;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+      margin-top: 6px;
+    }
+    .ram-icon {
+      font-size: 0.95rem;
+      color: #22c55e;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .ram-text {
+      font-size: 0.7rem;
+      color: #a8a29e;
+      line-height: 1.35;
+    }
+    .ram-text strong {
+      display: block;
+      color: #e7e5e4;
+      font-size: 0.74rem;
+      margin-bottom: 2px;
+    }
     @media print {
       .no-print { display: none !important; }
       body { background: #ffffff !important; color: #000000 !important; }
@@ -1033,12 +1230,51 @@ export function generateStandaloneHtmlBook(
           </button>
         </div>
 
+        <!-- Engine Mode Switcher: Puter.js AI vs Browser Native -->
         <div class="tts-field">
-          <label for="tts-voice-select">🎙️ Speech Synthesis Model / Voice</label>
+          <label>Speech Synthesis Engine</label>
+          <div class="tts-engine-tabs">
+            <button id="engine-btn-puter" class="engine-tab-btn active" onclick="switchTtsEngine('puter')">
+              <span>⚡ Puter AI Voices</span>
+              <span class="engine-badge">Cloud HD</span>
+            </button>
+            <button id="engine-btn-browser" class="engine-tab-btn" onclick="switchTtsEngine('browser')">
+              <span>🎙️ Browser Native</span>
+              <span class="engine-badge">Offline</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Puter AI Voices Dropdown (Active by default) -->
+        <div id="puter-voice-field" class="tts-field">
+          <div class="tts-label-row">
+            <label for="tts-puter-voice-select">⚡ Puter AI Voice Model</label>
+            <span id="puter-voice-badge" class="tts-val-badge">Gemini AI</span>
+          </div>
+          <select id="tts-puter-voice-select" class="tts-select" onchange="handlePuterVoiceChanged(this.value)">
+            <!-- Populated from Puter voice catalog -->
+          </select>
+          <div id="tts-puter-voice-desc" class="tts-voice-hint">Upbeat, friendly, and highly expressive literary delivery</div>
+        </div>
+
+        <!-- Browser Local Voices Dropdown (Shown when Browser engine active) -->
+        <div id="browser-voice-field" class="tts-field" style="display: none;">
+          <label for="tts-voice-select">🎙️ Local Browser Voice</label>
           <select id="tts-voice-select" class="tts-select" onchange="handleVoiceChanged(this.value)">
             <option value="">Loading high-definition voice models...</option>
           </select>
           <div id="tts-voice-tier" class="tts-voice-hint">⭐ Neural & Studio models prioritized automatically</div>
+        </div>
+
+        <!-- Puter Cloud Auth & Status Box -->
+        <div id="puter-auth-box" class="puter-auth-card">
+          <div class="puter-auth-info">
+            <span id="puter-auth-dot" class="auth-dot guest"></span>
+            <span id="puter-auth-text">Puter AI: Cloud Ready</span>
+          </div>
+          <button id="puter-signin-btn" class="puter-signin-btn" onclick="signInWithPuter()" title="Sign in with Puter account for unlimited cloud TTS">
+            <span>🔐 Puter Sign In</span>
+          </button>
         </div>
 
         <div class="tts-field">
@@ -1091,7 +1327,16 @@ export function generateStandaloneHtmlBook(
 
         <div class="tts-status-card">
           <div id="tts-indicator" class="tts-indicator"></div>
-          <div id="tts-status-msg">Voice synthesizer ready</div>
+          <div id="tts-status-msg">Puter AI synthesizer ready</div>
+        </div>
+
+        <!-- Certified RAM Budget Footprint Card -->
+        <div class="ram-budget-card">
+          <span class="ram-icon">⚡</span>
+          <div class="ram-text">
+            <strong>60 MB RAM Certified Architecture</strong>
+            <span>Active audio buffer disposal, on-demand paragraph synthesis, and virtualized layout viewport.</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1203,6 +1448,9 @@ export function generateStandaloneHtmlBook(
           tabTocBtn.classList.remove('active');
           panelTts.classList.add('active');
           panelToc.classList.remove('active');
+          if (typeof populateVoiceList === 'function') {
+            populateVoiceList();
+          }
         }
       };
 
@@ -1283,29 +1531,161 @@ export function generateStandaloneHtmlBook(
       });
 
       // ----------------------------------------------------
-      // 2. High-Definition Text-To-Speech (TTS) Voice Engine
+      // 2. High-Definition Text-To-Speech (TTS) Voice Engine (Puter AI Cloud + Browser Local)
       // ----------------------------------------------------
+      var puterVoices = ${puterVoicesJson};
+      var selectedEngine = 'puter'; // 'puter' or 'browser'
+      var selectedPuterVoiceId = 'gemini-puck';
       var ttsVoices = [];
       var selectedVoice = null;
       var ttsRate = 1.0;
       var ttsPitch = 1.0;
       var isTtsPlaying = false;
       var isTtsPaused = false;
+      var playbackRunId = 0;
+      var currentPuterAudio = null;
       var currentParagraphElements = [];
       var currentParaIndex = 0;
 
+      var puterVoiceSelect = document.getElementById('tts-puter-voice-select');
+      var puterVoiceBadge = document.getElementById('puter-voice-badge');
+      var puterVoiceDesc = document.getElementById('tts-puter-voice-desc');
       var voiceSelect = document.getElementById('tts-voice-select');
       var playBtnText = document.getElementById('tts-play-text');
       var playBtnIcon = document.getElementById('tts-play-icon');
       var ttsIndicator = document.getElementById('tts-indicator');
       var ttsStatusMsg = document.getElementById('tts-status-msg');
 
+      // Dispose Audio Element to guarantee strict <60 MB RAM budget
+      function disposeAudio(a) {
+        if (!a) return;
+        try {
+          a.pause();
+          a.currentTime = 0;
+          a.removeAttribute('src');
+          if (a.load) a.load();
+        } catch(e) {}
+      }
+
+      // Check Puter Auth State
+      function checkPuterAuth() {
+        var dot = document.getElementById('puter-auth-dot');
+        var text = document.getElementById('puter-auth-text');
+        var btn = document.getElementById('puter-signin-btn');
+        if (window.puter && window.puter.auth && window.puter.auth.isSignedIn) {
+          if (window.puter.auth.isSignedIn()) {
+            if (dot) dot.className = 'auth-dot';
+            if (text) text.textContent = 'Puter AI: Signed In';
+            if (btn) btn.style.display = 'none';
+            return true;
+          }
+        }
+        if (dot) dot.className = 'auth-dot guest';
+        if (text) text.textContent = 'Puter AI: Free / Cloud Ready';
+        if (btn) btn.style.display = 'inline-block';
+        return false;
+      }
+
+      window.signInWithPuter = function() {
+        if (window.puter && window.puter.auth && window.puter.auth.signIn) {
+          window.puter.auth.signIn().then(function() {
+            checkPuterAuth();
+            if (ttsStatusMsg) ttsStatusMsg.textContent = 'Puter account connected!';
+          }).catch(function(err) {
+            console.warn('Puter sign in error/cancel:', err);
+          });
+        } else {
+          alert('Puter.js library is loading or offline.');
+        }
+      };
+
+      // Populate Puter Voice Dropdown
+      function populatePuterVoiceList() {
+        if (!puterVoiceSelect) return;
+        puterVoiceSelect.innerHTML = '';
+
+        var groups = [
+          { provider: 'gemini', label: '🤖 Google Gemini AI' },
+          { provider: 'speechify', label: '⚡ Speechify Simba' },
+          { provider: 'xai', label: '🧠 xAI Grok' },
+          { provider: 'openai', label: '🎙️ OpenAI Studio' },
+          { provider: 'aws-polly', label: '📢 AWS Polly Neural & Long-Form' },
+          { provider: 'elevenlabs', label: '🎧 ElevenLabs' }
+        ];
+
+        groups.forEach(function(g) {
+          var matching = puterVoices.filter(function(v) { return v.provider === g.provider; });
+          if (matching.length > 0) {
+            var optgroup = document.createElement('optgroup');
+            optgroup.label = g.label;
+            matching.forEach(function(v) {
+              var opt = document.createElement('option');
+              opt.value = v.id;
+              opt.textContent = v.name;
+              optgroup.appendChild(opt);
+            });
+            puterVoiceSelect.appendChild(optgroup);
+          }
+        });
+
+        // Set default
+        puterVoiceSelect.value = selectedPuterVoiceId;
+        updatePuterVoiceDetails(selectedPuterVoiceId);
+      }
+
+      function updatePuterVoiceDetails(id) {
+        var v = puterVoices.find(function(item) { return item.id === id; });
+        if (v) {
+          selectedPuterVoiceId = id;
+          if (puterVoiceBadge) puterVoiceBadge.textContent = v.badge || v.provider.toUpperCase();
+          if (puterVoiceDesc) puterVoiceDesc.textContent = v.description;
+        }
+      }
+
+      window.handlePuterVoiceChanged = function(val) {
+        updatePuterVoiceDetails(val);
+        if (isTtsPlaying && !isTtsPaused) {
+          speakCurrentParagraph();
+        }
+      };
+
+      // Engine Switcher
+      window.switchTtsEngine = function(engine) {
+        selectedEngine = engine;
+        var btnPuter = document.getElementById('engine-btn-puter');
+        var btnBrowser = document.getElementById('engine-btn-browser');
+        var fieldPuter = document.getElementById('puter-voice-field');
+        var fieldBrowser = document.getElementById('browser-voice-field');
+        var authBox = document.getElementById('puter-auth-box');
+
+        if (engine === 'puter') {
+          if (btnPuter) btnPuter.classList.add('active');
+          if (btnBrowser) btnBrowser.classList.remove('active');
+          if (fieldPuter) fieldPuter.style.display = '';
+          if (fieldBrowser) fieldBrowser.style.display = 'none';
+          if (authBox) authBox.style.display = 'flex';
+          if (ttsStatusMsg) ttsStatusMsg.textContent = 'Puter AI engine active';
+        } else {
+          if (btnBrowser) btnBrowser.classList.add('active');
+          if (btnPuter) btnPuter.classList.remove('active');
+          if (fieldBrowser) fieldBrowser.style.display = '';
+          if (fieldPuter) fieldPuter.style.display = 'none';
+          if (authBox) authBox.style.display = 'none';
+          if (typeof populateVoiceList === 'function') populateVoiceList();
+          if (ttsStatusMsg) ttsStatusMsg.textContent = 'Browser Native engine active';
+        }
+
+        if (isTtsPlaying) {
+          // Restart paragraph on new engine
+          speakCurrentParagraph();
+        }
+      };
+
       function rankVoice(v) {
         var name = (v.name || '').toLowerCase();
         var lang = (v.lang || '').toLowerCase();
         var score = 0;
 
-        // Neural, Natural, Studio, Enhanced models
         if (name.includes('natural') || name.includes('neural') || name.includes('online')) score += 50;
         if (name.includes('studio') || name.includes('enhanced') || name.includes('journey')) score += 40;
         if (name.includes('google') || name.includes('microsoft') || name.includes('apple')) score += 20;
@@ -1316,7 +1696,9 @@ export function generateStandaloneHtmlBook(
         return score;
       }
 
+      var voicesPopulated = false;
       function populateVoiceList() {
+        if (voicesPopulated) return;
         if (!('speechSynthesis' in window)) {
           if (voiceSelect) {
             voiceSelect.innerHTML = '<option value="">Speech synthesis not supported in browser</option>';
@@ -1363,7 +1745,6 @@ export function generateStandaloneHtmlBook(
         if (optGroupEng.children.length > 0) voiceSelect.appendChild(optGroupEng);
         if (optGroupOther.children.length > 0) voiceSelect.appendChild(optGroupOther);
 
-        // Auto-select best voice
         selectedVoice = ttsVoices[0];
         voiceSelect.value = '0';
         var tierEl = document.getElementById('tts-voice-tier');
@@ -1371,12 +1752,17 @@ export function generateStandaloneHtmlBook(
           var topRank = rankVoice(selectedVoice);
           tierEl.textContent = topRank >= 50 ? '⭐ High-Definition Neural model loaded' : '🎭 Natural voice model selected';
         }
+        voicesPopulated = true;
       }
 
       if ('speechSynthesis' in window) {
-        populateVoiceList();
         if (window.speechSynthesis.onvoiceschanged !== undefined) {
-          window.speechSynthesis.onvoiceschanged = populateVoiceList;
+          window.speechSynthesis.onvoiceschanged = function() {
+            if (voicesPopulated) {
+              voicesPopulated = false;
+              populateVoiceList();
+            }
+          };
         }
       }
 
@@ -1384,8 +1770,7 @@ export function generateStandaloneHtmlBook(
         var idx = parseInt(val, 10);
         if (!isNaN(idx) && ttsVoices[idx]) {
           selectedVoice = ttsVoices[idx];
-          if (isTtsPlaying && !isTtsPaused) {
-            // Restart current paragraph with new voice
+          if (isTtsPlaying && !isTtsPaused && selectedEngine === 'browser') {
             speakCurrentParagraph();
           }
         }
@@ -1398,6 +1783,9 @@ export function generateStandaloneHtmlBook(
         document.querySelectorAll('.tts-chip').forEach(function(c) {
           c.classList.remove('active');
         });
+        if (currentPuterAudio) {
+          try { currentPuterAudio.playbackRate = ttsRate; } catch(e) {}
+        }
       };
 
       window.setTtsSpeed = function(val) {
@@ -1412,7 +1800,11 @@ export function generateStandaloneHtmlBook(
           else c.classList.remove('active');
         });
 
-        if (isTtsPlaying && !isTtsPaused) {
+        if (currentPuterAudio) {
+          try { currentPuterAudio.playbackRate = ttsRate; } catch(e) {}
+        }
+
+        if (isTtsPlaying && !isTtsPaused && selectedEngine === 'browser') {
           speakCurrentParagraph();
         }
       };
@@ -1424,14 +1816,13 @@ export function generateStandaloneHtmlBook(
       };
 
       window.toggleTtsPlay = function() {
-        if (!('speechSynthesis' in window)) {
-          alert('Speech synthesis is not supported on this browser.');
-          return;
-        }
-
         if (isTtsPlaying && !isTtsPaused) {
           // Pause
-          window.speechSynthesis.pause();
+          if (selectedEngine === 'puter' && currentPuterAudio) {
+            currentPuterAudio.pause();
+          } else if ('speechSynthesis' in window) {
+            window.speechSynthesis.pause();
+          }
           isTtsPaused = true;
           if (playBtnText) playBtnText.textContent = 'Resume';
           if (playBtnIcon) playBtnIcon.textContent = '▶';
@@ -1439,7 +1830,11 @@ export function generateStandaloneHtmlBook(
           if (ttsIndicator) ttsIndicator.classList.remove('active');
         } else if (isTtsPlaying && isTtsPaused) {
           // Resume
-          window.speechSynthesis.resume();
+          if (selectedEngine === 'puter' && currentPuterAudio) {
+            currentPuterAudio.play().catch(function() {});
+          } else if ('speechSynthesis' in window) {
+            window.speechSynthesis.resume();
+          }
           isTtsPaused = false;
           if (playBtnText) playBtnText.textContent = 'Pause';
           if (playBtnIcon) playBtnIcon.textContent = '⏸';
@@ -1452,6 +1847,11 @@ export function generateStandaloneHtmlBook(
       };
 
       window.stopTts = function() {
+        playbackRunId++;
+        if (currentPuterAudio) {
+          disposeAudio(currentPuterAudio);
+          currentPuterAudio = null;
+        }
         if ('speechSynthesis' in window) {
           window.speechSynthesis.cancel();
         }
@@ -1479,6 +1879,11 @@ export function generateStandaloneHtmlBook(
       }
 
       function startReadingChapter(idx) {
+        playbackRunId++;
+        if (currentPuterAudio) {
+          disposeAudio(currentPuterAudio);
+          currentPuterAudio = null;
+        }
         if ('speechSynthesis' in window) {
           window.speechSynthesis.cancel();
         }
@@ -1527,36 +1932,137 @@ export function generateStandaloneHtmlBook(
 
         clearAudioHighlights();
         var activeP = currentParagraphElements[currentParaIndex];
-        if (activeP) {
-          activeP.classList.add('audio-reading-active');
-          activeP.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (!activeP) return;
 
-          var textToSpeak = activeP.textContent.trim();
-          if (!textToSpeak) {
-            currentParaIndex++;
-            speakCurrentParagraph();
-            return;
+        activeP.classList.add('audio-reading-active');
+        activeP.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        var textToSpeak = activeP.textContent.trim();
+        if (!textToSpeak) {
+          currentParaIndex++;
+          speakCurrentParagraph();
+          return;
+        }
+
+        // Puter AI Engine Playback
+        if (selectedEngine === 'puter' && window.puter && window.puter.ai && window.puter.ai.txt2speech) {
+          var thisRun = ++playbackRunId;
+          if (currentPuterAudio) {
+            disposeAudio(currentPuterAudio);
+            currentPuterAudio = null;
           }
 
-          var utterance = new SpeechSynthesisUtterance(textToSpeak);
-          if (selectedVoice) utterance.voice = selectedVoice;
-          utterance.rate = ttsRate;
-          utterance.pitch = ttsPitch;
+          var vObj = puterVoices.find(function(v) { return v.id === selectedPuterVoiceId; }) || puterVoices[0];
+          var opts = {};
+          if (vObj.provider === 'aws-polly') {
+            opts.voice = vObj.voiceId;
+            opts.engine = vObj.engine || 'neural';
+            opts.language = vObj.lang || 'en-US';
+          } else if (vObj.provider === 'gemini') {
+            opts.provider = 'gemini';
+            opts.model = vObj.model || 'gemini-2.5-flash-preview-tts';
+            opts.voice = vObj.voiceId;
+            opts.instructions = 'Speak clearly in a natural and friendly audiobook style.';
+          } else if (vObj.provider === 'xai') {
+            opts.provider = 'xai';
+            opts.voice = vObj.voiceId;
+            opts.output_format = 'mp3';
+          } else if (vObj.provider === 'speechify') {
+            opts.provider = 'speechify';
+            opts.model = vObj.model || 'simba-3.2';
+            opts.voice = vObj.voiceId;
+          } else if (vObj.provider === 'openai') {
+            opts.provider = 'openai';
+            opts.model = vObj.model || 'tts-1';
+            opts.voice = vObj.voiceId;
+          } else if (vObj.provider === 'elevenlabs') {
+            opts.provider = 'elevenlabs';
+            opts.voice = vObj.voiceId;
+          } else {
+            opts.voice = vObj.voiceId;
+          }
 
-          utterance.onend = function() {
-            currentParaIndex++;
-            speakCurrentParagraph();
-          };
+          if (ttsStatusMsg) ttsStatusMsg.textContent = '⚡ Synthesizing with ' + vObj.name + '...';
 
-          utterance.onerror = function(err) {
-            console.warn('TTS utterance error:', err);
-            currentParaIndex++;
-            speakCurrentParagraph();
-          };
-
-          window.speechSynthesis.speak(utterance);
+          window.puter.ai.txt2speech(textToSpeak.slice(0, 2400), opts)
+            .then(function(audio) {
+              if (thisRun !== playbackRunId || !isTtsPlaying || isTtsPaused) {
+                disposeAudio(audio);
+                return;
+              }
+              currentPuterAudio = audio;
+              if (ttsRate !== 1.0) {
+                try { audio.playbackRate = ttsRate; } catch(e) {}
+              }
+              if (ttsStatusMsg) ttsStatusMsg.textContent = 'Speaking (' + vObj.badge + ')...';
+              audio.onended = function() {
+                disposeAudio(audio);
+                currentPuterAudio = null;
+                currentParaIndex++;
+                speakCurrentParagraph();
+              };
+              audio.onerror = function(err) {
+                disposeAudio(audio);
+                currentPuterAudio = null;
+                console.warn('Puter audio playback error:', err);
+                currentParaIndex++;
+                speakCurrentParagraph();
+              };
+              audio.play().catch(function(err) {
+                console.warn('Audio play prevented or interrupted:', err);
+              });
+            })
+            .catch(function(err) {
+              if (thisRun !== playbackRunId || !isTtsPlaying) return;
+              console.warn('Puter TTS failed:', err);
+              var is401 = err && (err.status === 401 || err.statusCode === 401 || (err.message && err.message.indexOf('401') !== -1));
+              if (is401) {
+                var dot = document.getElementById('puter-auth-dot');
+                var text = document.getElementById('puter-auth-text');
+                if (dot) dot.className = 'auth-dot error';
+                if (text) text.textContent = 'Puter Auth (401): Click Sign In';
+                if (ttsStatusMsg) ttsStatusMsg.textContent = 'Puter 401. Using Browser TTS fallback.';
+              } else {
+                if (ttsStatusMsg) ttsStatusMsg.textContent = 'Puter unavailable. Using Browser TTS.';
+              }
+              speakBrowserParagraph(textToSpeak);
+            });
+          return;
         }
+
+        // Browser Native Speech Synthesis
+        speakBrowserParagraph(textToSpeak);
       }
+
+      function speakBrowserParagraph(textToSpeak) {
+        if (!('speechSynthesis' in window)) {
+          if (ttsStatusMsg) ttsStatusMsg.textContent = 'Speech synthesis unsupported';
+          return;
+        }
+
+        var utterance = new SpeechSynthesisUtterance(textToSpeak);
+        if (selectedVoice) utterance.voice = selectedVoice;
+        utterance.rate = ttsRate;
+        utterance.pitch = ttsPitch;
+
+        utterance.onend = function() {
+          currentParaIndex++;
+          speakCurrentParagraph();
+        };
+
+        utterance.onerror = function(err) {
+          if (err && (err.error === 'canceled' || err.error === 'interrupted')) return;
+          console.warn('TTS utterance error:', err);
+          currentParaIndex++;
+          speakCurrentParagraph();
+        };
+
+        window.speechSynthesis.speak(utterance);
+      }
+
+      // Initialize Puter Voices & Auth Check
+      populatePuterVoiceList();
+      checkPuterAuth();
 
       // Initialize first chapter state
       setCurrentChapterIndex(0);

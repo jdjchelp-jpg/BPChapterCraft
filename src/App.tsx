@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { CheckCircle2, Sparkles, Library } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { DocumentUploadZone } from './components/DocumentUploadZone';
 import { CoverManager } from './components/CoverManager';
@@ -8,9 +8,18 @@ import { ParsingConfigPanel } from './components/ParsingConfigPanel';
 import { BookPreview } from './components/BookPreview';
 import { ManuscriptEditor } from './components/ManuscriptEditor';
 import { ExportModal } from './components/ExportModal';
+import { MultiBookOmnibusModal } from './components/MultiBookOmnibusModal';
 
-import { BookMetadata, ParsingConfig, DEFAULT_PARSING_CONFIG, FormatOptions, DocumentUploadResult } from './types';
+import {
+  BookMetadata,
+  ParsingConfig,
+  DEFAULT_PARSING_CONFIG,
+  FormatOptions,
+  DocumentUploadResult,
+  OmnibusBookItem,
+} from './types';
 import { parseDocumentStructure } from './utils/parser';
+import { readUploadedDocument, extractInitialMetadata } from './utils/fileReader';
 import { SAMPLE_MANUSCRIPT } from './data/sampleDocument';
 
 export default function App() {
@@ -59,11 +68,57 @@ export default function App() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isOmnibusOpen, setIsOmnibusOpen] = useState(false);
+  const [omnibusBooks, setOmnibusBooks] = useState<OmnibusBookItem[]>([]);
+  const [omnibusNotification, setOmnibusNotification] = useState<{
+    count: number;
+    title: string;
+  } | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | undefined>(undefined);
   const [chapterCraftNotification, setChapterCraftNotification] = useState<{
     title: string;
     author?: string;
   } | null>(null);
+
+  // Hidden Easter Egg: Ancient Bloodline Secret Feature Unlock
+  const [isSecretUnlocked, setIsSecretUnlocked] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('chaptercraft_ancient_bloodline_unlocked') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [showUnlockToast, setShowUnlockToast] = useState<boolean>(false);
+
+  // Check title for "Ancient Bloodline" unlock trigger
+  useEffect(() => {
+    const cleanTitle = (metadata.title || '').trim().toLowerCase();
+    if (cleanTitle === 'ancient bloodline') {
+      setIsSecretUnlocked(true);
+      try {
+        localStorage.setItem('chaptercraft_ancient_bloodline_unlocked', 'true');
+      } catch {}
+      setShowUnlockToast(true);
+    }
+  }, [metadata.title]);
+
+  const handleUnlockSecret = () => {
+    setIsSecretUnlocked(true);
+    try {
+      localStorage.setItem('chaptercraft_ancient_bloodline_unlocked', 'true');
+    } catch {}
+    setShowUnlockToast(true);
+  };
+
+  // Safe tab switcher that immediately stops speech when leaving the preview/reader tab
+  const handleTabSwitch = (tab: 'preview' | 'editor' | 'toc' | 'cover') => {
+    if (tab !== 'preview') {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    }
+    setActiveTab(tab);
+  };
 
   // Automatic Structure Parsing Engine
   const chapters = useMemo(() => {
@@ -124,6 +179,61 @@ export default function App() {
     setActiveTab('preview');
   };
 
+  // Open Multi-Book Omnibus Binder (Optionally with dropped/selected files)
+  const handleOpenOmnibusWithFiles = async (files?: File[]) => {
+    if (files && files.length > 0) {
+      const newBooks: OmnibusBookItem[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const uploadResult = await readUploadedDocument(file);
+          const autoMeta = extractInitialMetadata(uploadResult.rawText, file.name);
+          const combined = { ...autoMeta, ...uploadResult.metadata };
+          const parsed = parseDocumentStructure(uploadResult.rawText, parsingConfig);
+          newBooks.push({
+            id: `book-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: uploadResult.fileType,
+            title: combined.title || file.name.replace(/\.[^/.]+$/, ''),
+            author: combined.author || metadata.author || 'Author',
+            volumePrefix: `Book ${i + 1}`,
+            rawText: uploadResult.rawText,
+            metadata: combined,
+            chapterCount: parsed.length,
+            wordCount: uploadResult.rawText.trim().split(/\s+/).filter(Boolean).length,
+          });
+        } catch (e) {
+          console.warn('Error reading file for omnibus:', e);
+        }
+      }
+      if (newBooks.length > 0) {
+        setOmnibusBooks(newBooks);
+      }
+    }
+    setIsOmnibusOpen(true);
+  };
+
+  // Assemble omnibus manuscript from user-ordered books
+  const handleAssembleOmnibus = (
+    mergedText: string,
+    omnibusMeta: Partial<BookMetadata>,
+    books: OmnibusBookItem[]
+  ) => {
+    setRawText(mergedText);
+    setOmnibusBooks(books);
+    setMetadata((prev) => ({
+      ...prev,
+      ...omnibusMeta,
+    }));
+    setOmnibusNotification({
+      count: books.length,
+      title: omnibusMeta.title || 'Omnibus Collection',
+    });
+    setTimeout(() => setOmnibusNotification(null), 6000);
+    setActiveTab('preview');
+  };
+
   // Update a chapter title from the TOC view
   const handleUpdateChapterTitle = (chapterId: string, newTitle: string) => {
     const targetChapter = chapters.find((c) => c.id === chapterId);
@@ -176,13 +286,15 @@ export default function App() {
       {/* Top Application Header */}
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabSwitch}
         chapterCount={chapters.length}
         wordCount={totalWordCount}
         onOpenUpload={() => setIsUploadOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
         onLoadSample={handleLoadSample}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenOmnibus={() => setIsOmnibusOpen(true)}
+        omnibusBookCount={omnibusBooks.length}
       />
 
       {/* Main Content Area */}
@@ -195,6 +307,7 @@ export default function App() {
             onChangeOptions={setFormatOptions}
             selectedChapterId={selectedChapterId}
             onOpenExport={() => setIsExportOpen(true)}
+            isSecretUnlocked={isSecretUnlocked}
           />
         )}
 
@@ -224,6 +337,8 @@ export default function App() {
           <CoverManager
             metadata={metadata}
             onChangeMetadata={setMetadata}
+            isSecretUnlocked={isSecretUnlocked}
+            onUnlockSecretThemes={handleUnlockSecret}
           />
         )}
       </main>
@@ -234,6 +349,15 @@ export default function App() {
         onClose={() => setIsUploadOpen(false)}
         onDocumentLoaded={handleDocumentLoaded}
         onLoadSample={handleLoadSample}
+        onOpenOmnibus={handleOpenOmnibusWithFiles}
+      />
+
+      {/* Multi-Book Omnibus & Series Binder Modal */}
+      <MultiBookOmnibusModal
+        isOpen={isOmnibusOpen}
+        onClose={() => setIsOmnibusOpen(false)}
+        onAssembleOmnibus={handleAssembleOmnibus}
+        initialBooks={omnibusBooks}
       />
 
       {/* Delimiter & Parsing Rules Panel */}
@@ -256,6 +380,42 @@ export default function App() {
         rawText={rawText}
       />
 
+      {/* Ancient Bloodline Secret Features Unlock Bottom Pop-up */}
+      {showUnlockToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-stone-950/95 text-stone-100 border-2 border-amber-500/80 shadow-[0_10px_40px_rgba(245,158,11,0.3)] rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center gap-4 backdrop-blur-xl max-w-xl w-[92%] animate-in fade-in slide-in-from-bottom-5 duration-300">
+          <div className="w-11 h-11 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/40 shadow-inner">
+            <Sparkles className="w-6 h-6 animate-pulse" />
+          </div>
+          <div className="flex-1 text-center sm:text-left min-w-0">
+            <div className="text-sm sm:text-base font-bold text-amber-300 flex items-center justify-center sm:justify-start gap-1.5 font-serif">
+              <span>You've unlocked our new hidden features!</span>
+            </div>
+            <p className="text-xs text-stone-300 mt-1 leading-relaxed">
+              <strong>Ancient Bloodline</strong> secret discovered: <strong>Obsidian Dark</strong>, <strong>Paper White (Parchment White)</strong>, and <strong>Parchment Cream</strong> luxury reading themes are now unlocked!
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setFormatOptions((prev) => ({ ...prev, colorTheme: 'obsidian-dark' }));
+                setActiveTab('preview');
+                setShowUnlockToast(false);
+              }}
+              className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs shadow-md transition-all whitespace-nowrap"
+            >
+              Try Obsidian Dark
+            </button>
+            <button
+              onClick={() => setShowUnlockToast(false)}
+              className="text-stone-400 hover:text-stone-200 p-1.5 rounded-lg hover:bg-stone-800 transition-colors"
+              title="Close notification"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ChapterCraft Re-import Toast Notification */}
       {chapterCraftNotification && (
         <div className="fixed bottom-6 right-6 z-50 bg-stone-900/95 text-stone-100 border border-emerald-500/50 shadow-2xl rounded-xl p-4 flex items-center gap-3.5 backdrop-blur-md max-w-md animate-in fade-in slide-in-from-bottom-3 duration-300">
@@ -272,6 +432,33 @@ export default function App() {
           </div>
           <button
             onClick={() => setChapterCraftNotification(null)}
+            className="text-stone-400 hover:text-stone-200 p-1 text-sm leading-none"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Multi-Book Omnibus Assembly Toast Notification */}
+      {omnibusNotification && (
+        <div className="fixed bottom-6 right-6 z-50 bg-stone-950/95 text-stone-100 border border-amber-500/60 shadow-2xl rounded-xl p-4 flex items-center gap-3.5 backdrop-blur-md max-w-md animate-in fade-in slide-in-from-bottom-3 duration-300">
+          <div className="w-10 h-10 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/40">
+            <Library className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wider text-amber-400">
+              Omnibus Assembled into 1 File!
+            </div>
+            <div className="text-sm font-bold text-stone-100 truncate">
+              {omnibusNotification.title}
+            </div>
+            <div className="text-xs text-stone-300 mt-0.5">
+              Merged {omnibusNotification.count} books with volume hierarchies & unified TOC.
+            </div>
+          </div>
+          <button
+            onClick={() => setOmnibusNotification(null)}
             className="text-stone-400 hover:text-stone-200 p-1 text-sm leading-none"
             title="Dismiss"
           >

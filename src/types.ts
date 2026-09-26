@@ -27,6 +27,31 @@ export interface ChapterItem {
   pageEstimate: number;
 }
 
+export interface OmnibusBookItem {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  title: string;
+  author: string;
+  volumePrefix: string; // e.g. "Book 1", "Book 2", "Volume I", "Part 1"
+  rawText: string;
+  metadata?: Partial<BookMetadata>;
+  chapterCount: number;
+  wordCount: number;
+}
+
+export interface OmnibusAssemblyOptions {
+  masterTitle: string;
+  masterAuthor: string;
+  masterPublisher: string;
+  masterYear: string;
+  masterGenre: string;
+  divisionStyle: 'book' | 'volume' | 'part' | 'preserve';
+  includeBookTitlePages: boolean;
+  renumberChaptersAcrossBooks: boolean;
+}
+
 export interface ParsingConfig {
   detectBoldMarkdown: boolean; // ** Chapter 2 Bess ** or **Episode 1**
   detectStandardChapters: boolean; // Chapter 1, Chapter II, Part One, etc.
@@ -121,6 +146,86 @@ export const BOOK_FONT_DETAILS: FontOptionDetail[] = [
   },
 ];
 
+export type BookColorTheme =
+  | 'light'
+  | 'parchment'
+  | 'dark'
+  | 'obsidian-dark'
+  | 'parchment-white'
+  | 'parchment-cream';
+
+export interface ColorThemeOption {
+  id: BookColorTheme;
+  name: string;
+  bgHex: string;
+  cardHex: string;
+  textHex: string;
+  accentHex: string;
+  description: string;
+  isUnlockedFeature?: boolean;
+}
+
+export const BOOK_COLOR_THEMES: ColorThemeOption[] = [
+  {
+    id: 'parchment',
+    name: 'Parchment Antique',
+    bgHex: '#faf6ee',
+    cardHex: '#f4ede0',
+    textHex: '#2b211a',
+    accentHex: '#8b5a2b',
+    description: 'Classic warm sepia book page, easy on eyes for long reading sessions.',
+  },
+  {
+    id: 'light',
+    name: 'Classic Day',
+    bgHex: '#ffffff',
+    cardHex: '#f8f8f8',
+    textHex: '#1c1917',
+    accentHex: '#d97706',
+    description: 'Crisp, high-contrast modern daytime reading layout.',
+  },
+  {
+    id: 'dark',
+    name: 'Cozy Night',
+    bgHex: '#1c1917',
+    cardHex: '#292524',
+    textHex: '#f5f5f4',
+    accentHex: '#f59e0b',
+    description: 'Muted slate dark background for night reading with minimal eye strain.',
+  },
+  // Unlocked Features (Ancient Bloodline Easter Egg)
+  {
+    id: 'obsidian-dark',
+    name: 'Obsidian Dark',
+    bgHex: '#09090b',
+    cardHex: '#141416',
+    textHex: '#f4f4f5',
+    accentHex: '#eab308',
+    description: 'Deep obsidian black with gold accents and high contrast text.',
+    isUnlockedFeature: true,
+  },
+  {
+    id: 'parchment-white',
+    name: 'Paper White',
+    bgHex: '#fdfbf7',
+    cardHex: '#f7f4ec',
+    textHex: '#18181b',
+    accentHex: '#9a3412',
+    description: 'Archival paper white, pure literary clarity with rich typographic contrast.',
+    isUnlockedFeature: true,
+  },
+  {
+    id: 'parchment-cream',
+    name: 'Parchment Cream',
+    bgHex: '#fbf4e6',
+    cardHex: '#f5ebd6',
+    textHex: '#33271c',
+    accentHex: '#b45309',
+    description: 'Warm cream book stock with golden sepia undertones.',
+    isUnlockedFeature: true,
+  },
+];
+
 export interface FormatOptions {
   curlyQuotes: boolean;
   emDashes: boolean;
@@ -133,7 +238,7 @@ export interface FormatOptions {
   fontFamily: BookFontFamily;
   fontSize: number;
   lineHeight: number;
-  colorTheme: 'light' | 'parchment' | 'dark';
+  colorTheme: BookColorTheme;
   tocStyle: 'classic-dots' | 'modern-clean' | 'academic-numbered';
   includeCoverInBook: boolean;
   includeTocInBook: boolean;

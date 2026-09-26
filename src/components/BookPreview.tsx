@@ -9,6 +9,7 @@ import {
 } from '../types';
 import { formatDocumentText } from '../utils/parser';
 import { BookSidePanel } from './BookSidePanel';
+import { PUTER_VOICES, speakWithPuter, isPuterAvailable } from '../utils/puterTTS';
 import {
   Type,
   Maximize2,
@@ -36,6 +37,7 @@ interface BookPreviewProps {
   onChangeOptions: (updated: FormatOptions) => void;
   selectedChapterId?: string;
   onOpenExport: () => void;
+  isSecretUnlocked?: boolean;
 }
 
 export function BookPreview({
@@ -45,6 +47,7 @@ export function BookPreview({
   onChangeOptions,
   selectedChapterId,
   onOpenExport,
+  isSecretUnlocked = false,
 }: BookPreviewProps) {
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
   const [isContinuousScroll, setIsContinuousScroll] = useState(true);
@@ -52,6 +55,8 @@ export function BookPreview({
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
 
   // Text-To-Speech (TTS) Engine State
+  const [ttsEngineMode, setTtsEngineMode] = useState<'puter' | 'browser'>('puter');
+  const [selectedPuterVoiceId, setSelectedPuterVoiceId] = useState<string>('gemini-puck');
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceIndex, setSelectedVoiceIndex] = useState(0);
   const [ttsRate, setTtsRate] = useState(1.0);
@@ -63,6 +68,9 @@ export function BookPreview({
   const [activeParaIndex, setActiveParaIndex] = useState<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const isSpeakingRef = useRef<boolean>(false);
+  const playbackRunIdRef = useRef<number>(0);
 
   // Load and rank browser speech synthesis voices
   useEffect(() => {
@@ -96,16 +104,34 @@ export function BookPreview({
   // Cleanup speech on unmount
   useEffect(() => {
     return () => {
+      playbackRunIdRef.current++;
+      isSpeakingRef.current = false;
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
+      }
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.onended = null;
+        currentAudioRef.current.onerror = null;
+        currentAudioRef.current = null;
       }
     };
   }, []);
 
   // Stop speech playback
   const handleStopSpeech = useCallback(() => {
+    playbackRunIdRef.current++;
+    isSpeakingRef.current = false;
+
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
+    }
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0;
+      currentAudioRef.current.onended = null;
+      currentAudioRef.current.onerror = null;
+      currentAudioRef.current = null;
     }
     setIsSpeaking(false);
     setIsPaused(false);
@@ -115,9 +141,23 @@ export function BookPreview({
 
   // Speak a specific paragraph with auto-advance and highlight
   const speakParagraph = useCallback(
-    (chapterIdx: number, paraIdx: number) => {
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-      window.speechSynthesis.cancel();
+    async (chapterIdx: number, paraIdx: number) => {
+      const runId = ++playbackRunIdRef.current;
+      isSpeakingRef.current = true;
+
+      // Cancel any ongoing browser synthesis
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      // Stop any existing Puter audio
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.onended = null;
+        currentAudioRef.current.onerror = null;
+        currentAudioRef.current = null;
+      }
+
+      if (runId !== playbackRunIdRef.current || !isSpeakingRef.current) return;
 
       const ch = chapters[chapterIdx];
       if (!ch) {
@@ -145,7 +185,9 @@ export function BookPreview({
           setCurrentChapterIndex(nextIdx);
           const nextEl = document.getElementById(`preview-${chapters[nextIdx].id}`);
           nextEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          speakParagraph(nextIdx, 0);
+          if (runId === playbackRunIdRef.current && isSpeakingRef.current) {
+            speakParagraph(nextIdx, 0);
+          }
         } else {
           handleStopSpeech();
         }
@@ -161,25 +203,88 @@ export function BookPreview({
       const pEl = document.getElementById(`preview-p-${chapterIdx}-${paraIdx}`);
       pEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-      const utterance = new SpeechSynthesisUtterance(paragraphs[paraIdx]);
-      if (voices[selectedVoiceIndex]) {
-        utterance.voice = voices[selectedVoiceIndex];
+      const textToSpeak = paragraphs[paraIdx];
+
+      // Fallback helper for browser speech synthesis
+      const speakWithBrowser = () => {
+        if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+        if (runId !== playbackRunIdRef.current || !isSpeakingRef.current) return;
+
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        if (voices[selectedVoiceIndex]) {
+          utterance.voice = voices[selectedVoiceIndex];
+        }
+        utterance.rate = ttsRate;
+        utterance.pitch = ttsPitch;
+
+        utterance.onend = () => {
+          if (runId !== playbackRunIdRef.current || !isSpeakingRef.current) return;
+          speakParagraph(chapterIdx, paraIdx + 1);
+        };
+
+        utterance.onerror = (err) => {
+          // If speech was cancelled or interrupted, do NOT speak the next paragraph!
+          if (err.error === 'canceled' || err.error === 'interrupted') return;
+          if (runId !== playbackRunIdRef.current || !isSpeakingRef.current) return;
+          console.warn('Browser TTS utterance error:', err);
+          speakParagraph(chapterIdx, paraIdx + 1);
+        };
+
+        window.speechSynthesis.speak(utterance);
+      };
+
+      // Try Puter AI TTS first if mode is 'puter' and puter is available
+      if (ttsEngineMode === 'puter' && isPuterAvailable()) {
+        try {
+          const puterVoice =
+            PUTER_VOICES.find((v) => v.id === selectedPuterVoiceId) || PUTER_VOICES[0];
+          const audio = await speakWithPuter(textToSpeak, puterVoice, ttsRate);
+
+          if (runId !== playbackRunIdRef.current || !isSpeakingRef.current) {
+            audio.pause();
+            return;
+          }
+
+          currentAudioRef.current = audio;
+
+          audio.onended = () => {
+            if (runId !== playbackRunIdRef.current || !isSpeakingRef.current) return;
+            currentAudioRef.current = null;
+            speakParagraph(chapterIdx, paraIdx + 1);
+          };
+
+          audio.onerror = (err) => {
+            if (runId !== playbackRunIdRef.current || !isSpeakingRef.current) return;
+            console.warn('Puter audio playback error, falling back to browser:', err);
+            currentAudioRef.current = null;
+            speakWithBrowser();
+          };
+
+          await audio.play();
+          return;
+        } catch (err: any) {
+          if (runId !== playbackRunIdRef.current || !isSpeakingRef.current) return;
+          console.warn('Puter TTS invocation failed, falling back to browser:', err?.message || err);
+          speakWithBrowser();
+          return;
+        }
       }
-      utterance.rate = ttsRate;
-      utterance.pitch = ttsPitch;
 
-      utterance.onend = () => {
-        speakParagraph(chapterIdx, paraIdx + 1);
-      };
-
-      utterance.onerror = (err) => {
-        console.warn('TTS utterance error:', err);
-        speakParagraph(chapterIdx, paraIdx + 1);
-      };
-
-      window.speechSynthesis.speak(utterance);
+      // Default browser synthesis
+      speakWithBrowser();
     },
-    [chapters, options, autoAdvance, voices, selectedVoiceIndex, ttsRate, ttsPitch, handleStopSpeech]
+    [
+      chapters,
+      options,
+      autoAdvance,
+      voices,
+      selectedVoiceIndex,
+      ttsRate,
+      ttsPitch,
+      ttsEngineMode,
+      selectedPuterVoiceId,
+      handleStopSpeech,
+    ]
   );
 
   const handlePlayChapter = useCallback(
@@ -193,6 +298,17 @@ export function BookPreview({
   );
 
   const handleTogglePause = useCallback(() => {
+    if (currentAudioRef.current) {
+      if (isPaused) {
+        currentAudioRef.current.play().catch(console.warn);
+        setIsPaused(false);
+      } else {
+        currentAudioRef.current.pause();
+        setIsPaused(true);
+      }
+      return;
+    }
+
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     if (isPaused) {
       window.speechSynthesis.resume();
@@ -220,11 +336,15 @@ export function BookPreview({
   }, [selectedChapterId, chapters, isContinuousScroll]);
 
   // Styling theme classes
-  const themeClasses = {
+  const themeClasses: Record<string, string> = {
     light: 'bg-[#faf9f6] text-[#22211f] border-stone-200',
     parchment: 'bg-[#f4eedb] text-[#2b241e] border-[#d8cdb4]',
     dark: 'bg-[#18181b] text-[#e4e4e7] border-stone-800',
-  }[options.colorTheme];
+    'obsidian-dark': 'bg-[#09090b] text-[#f4f4f5] border-[#27272a] shadow-2xl',
+    'parchment-white': 'bg-[#fdfbf7] text-[#18181b] border-[#e7e5e4]',
+    'parchment-cream': 'bg-[#fbf4e6] text-[#33271c] border-[#e4d7be]',
+  };
+  const activeThemeClass = themeClasses[options.colorTheme] || themeClasses.parchment;
 
   const fontCssMap: Record<BookFontFamily, string> = {
     cormorant: "'Cormorant Garamond', Georgia, serif",
@@ -405,28 +525,60 @@ export function BookPreview({
           </div>
 
           {/* Theme Palette */}
-          <div className="flex items-center gap-1 bg-stone-950 rounded-lg p-1 border border-stone-800">
+          <div className="flex items-center gap-1.5 bg-stone-950 rounded-lg p-1 border border-stone-800">
+            {/* Standard themes */}
             <button
-              onClick={() => onChangeOptions({ ...options, colorTheme: 'light' })}
-              title="Paper White"
-              className={`w-4 h-4 rounded-full bg-[#faf9f6] border ${
-                options.colorTheme === 'light' ? 'ring-2 ring-amber-500' : 'border-stone-600'
+              onClick={() => onChangeOptions({ ...options, colorTheme: 'parchment' })}
+              title="Parchment Antique (Default Book Page)"
+              className={`w-4 h-4 rounded-full bg-[#f4eedb] border transition-all ${
+                options.colorTheme === 'parchment' ? 'ring-2 ring-amber-500 scale-110' : 'border-stone-600 hover:scale-105'
               }`}
             />
             <button
-              onClick={() => onChangeOptions({ ...options, colorTheme: 'parchment' })}
-              title="Parchment Cream (Default)"
-              className={`w-4 h-4 rounded-full bg-[#f4eedb] border ${
-                options.colorTheme === 'parchment' ? 'ring-2 ring-amber-500' : 'border-stone-600'
+              onClick={() => onChangeOptions({ ...options, colorTheme: 'light' })}
+              title="Classic Day (White Page)"
+              className={`w-4 h-4 rounded-full bg-[#faf9f6] border transition-all ${
+                options.colorTheme === 'light' ? 'ring-2 ring-amber-500 scale-110' : 'border-stone-600 hover:scale-105'
               }`}
             />
             <button
               onClick={() => onChangeOptions({ ...options, colorTheme: 'dark' })}
-              title="Obsidian Dark"
-              className={`w-4 h-4 rounded-full bg-[#18181b] border ${
-                options.colorTheme === 'dark' ? 'ring-2 ring-amber-500' : 'border-stone-600'
+              title="Cozy Night (Muted Dark)"
+              className={`w-4 h-4 rounded-full bg-[#27272a] border transition-all ${
+                options.colorTheme === 'dark' ? 'ring-2 ring-amber-500 scale-110' : 'border-stone-600 hover:scale-105'
               }`}
             />
+
+            {/* Unlocked Themes (Ancient Bloodline Easter Egg) */}
+            {isSecretUnlocked && (
+              <>
+                <div className="w-px h-3.5 bg-stone-700 mx-0.5" />
+                <button
+                  onClick={() => onChangeOptions({ ...options, colorTheme: 'obsidian-dark' })}
+                  title="★ Unlocked: Obsidian Dark (Deep Black & Gold)"
+                  className={`w-4 h-4 rounded-full bg-[#09090b] border border-amber-500/80 transition-all ${
+                    options.colorTheme === 'obsidian-dark' ? 'ring-2 ring-amber-400 scale-110 shadow-xs' : 'hover:scale-105'
+                  }`}
+                />
+                <button
+                  onClick={() => onChangeOptions({ ...options, colorTheme: 'parchment-white' })}
+                  title="★ Unlocked: Paper White (Parchment White)"
+                  className={`w-4 h-4 rounded-full bg-[#ffffff] border border-stone-300 transition-all ${
+                    options.colorTheme === 'parchment-white' ? 'ring-2 ring-amber-400 scale-110 shadow-xs' : 'hover:scale-105'
+                  }`}
+                />
+                <button
+                  onClick={() => onChangeOptions({ ...options, colorTheme: 'parchment-cream' })}
+                  title="★ Unlocked: Parchment Cream (Warm Library)"
+                  className={`w-4 h-4 rounded-full bg-[#fbf4e6] border border-amber-300 transition-all ${
+                    options.colorTheme === 'parchment-cream' ? 'ring-2 ring-amber-400 scale-110 shadow-xs' : 'hover:scale-105'
+                  }`}
+                />
+                <span className="text-[10px] text-amber-400 font-mono pl-0.5 hidden sm:inline" title="Ancient Bloodline hidden themes unlocked">
+                  ✦
+                </span>
+              </>
+            )}
           </div>
 
           {/* Formatting Toggles */}
@@ -479,7 +631,7 @@ export function BookPreview({
       {/* Main Manuscript Book Layout Container */}
       <div
         ref={containerRef}
-        className={`book-canvas rounded-2xl shadow-xl border p-8 sm:p-14 transition-colors duration-200 ${themeClasses}`}
+        className={`book-canvas rounded-2xl shadow-xl border p-8 sm:p-14 transition-colors duration-200 ${activeThemeClass}`}
         style={{
           fontFamily: currentFontFamilyCss,
           fontSize: `${options.fontSize}px`,
@@ -728,6 +880,11 @@ export function BookPreview({
         autoAdvance={autoAdvance}
         onChangeAutoAdvance={setAutoAdvance}
         activeParaIndex={activeParaIndex}
+        ttsEngineMode={ttsEngineMode}
+        onChangeTtsEngineMode={setTtsEngineMode}
+        selectedPuterVoiceId={selectedPuterVoiceId}
+        onSelectPuterVoiceId={setSelectedPuterVoiceId}
+        puterAvailable={typeof window !== 'undefined' && Boolean(window.puter?.ai?.txt2speech)}
       />
     </div>
   );

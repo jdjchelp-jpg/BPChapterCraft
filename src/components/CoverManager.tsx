@@ -1,14 +1,23 @@
-import { useState, useRef, useEffect, DragEvent, ClipboardEvent } from 'react';
+import { useState, useRef, useEffect, DragEvent } from 'react';
 import { BookMetadata } from '../types';
-import { Image, Upload, Clipboard, Trash2, Palette, Sparkles, Check, User, BookOpen } from 'lucide-react';
+import { Image, Upload, Clipboard, Trash2, Palette, Sparkles, Check, User, BookOpen, Flame } from 'lucide-react';
+import { optimizeCoverImage, formatBytes } from '../utils/imageOptimizer';
 
 interface CoverManagerProps {
   metadata: BookMetadata;
   onChangeMetadata: (updated: BookMetadata) => void;
+  isSecretUnlocked?: boolean;
+  onUnlockSecretThemes?: () => void;
 }
 
-export function CoverManager({ metadata, onChangeMetadata }: CoverManagerProps) {
+export function CoverManager({
+  metadata,
+  onChangeMetadata,
+  isSecretUnlocked = false,
+  onUnlockSecretThemes,
+}: CoverManagerProps) {
   const [pasteFeedback, setPasteFeedback] = useState<string | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
@@ -32,21 +41,43 @@ export function CoverManager({ metadata, onChangeMetadata }: CoverManagerProps) 
 
     window.addEventListener('paste', handleGlobalPaste);
     return () => window.removeEventListener('paste', handleGlobalPaste);
-  }, []);
+  }, [metadata]);
 
-  const readImageFile = (file: File, feedbackText = 'Cover image loaded') => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (typeof event.target?.result === 'string') {
-        onChangeMetadata({
-          ...metadata,
-          coverImageUrl: event.target.result,
-        });
+  const readImageFile = async (file: File, feedbackText = 'Cover image loaded') => {
+    setIsOptimizing(true);
+    try {
+      // Automatically optimize and downscale camera/phone images (reduces 40-60 MB down to < 250 KB)
+      const result = await optimizeCoverImage(file, 1200, 1800, 0.88);
+      onChangeMetadata({
+        ...metadata,
+        coverImageUrl: result.dataUrl,
+      });
+
+      if (result.originalSizeBytes > 800 * 1024) {
+        setPasteFeedback(
+          `Cover optimized! Compressed ${formatBytes(result.originalSizeBytes)} ➔ ${formatBytes(result.optimizedSizeBytes)} (${Math.round(result.compressionRatio * 100)}% lighter for instant loading)`
+        );
+      } else {
         setPasteFeedback(feedbackText);
-        setTimeout(() => setPasteFeedback(null), 3000);
       }
-    };
-    reader.readAsDataURL(file);
+      setTimeout(() => setPasteFeedback(null), 4500);
+    } catch (err) {
+      console.warn('Cover optimization failed, falling back to direct reader:', err);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (typeof event.target?.result === 'string') {
+          onChangeMetadata({
+            ...metadata,
+            coverImageUrl: event.target.result,
+          });
+          setPasteFeedback(feedbackText);
+          setTimeout(() => setPasteFeedback(null), 3000);
+        }
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsOptimizing(false);
+    }
   };
 
   const handlePasteFromClipboardClick = async () => {
@@ -261,16 +292,35 @@ export function CoverManager({ metadata, onChangeMetadata }: CoverManagerProps) 
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-stone-400 mb-1">
-                    Book / Document Title
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-stone-400">
+                      Book / Document Title
+                    </label>
+                    {isSecretUnlocked && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                        <Sparkles className="w-3 h-3 text-amber-400" />
+                        <span>Ancient Bloodline Unlocked</span>
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={metadata.title}
-                    onChange={(e) => onChangeMetadata({ ...metadata, title: e.target.value })}
-                    placeholder="e.g. The Chronicle of Bess"
-                    className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                    onChange={(e) => {
+                      const newTitle = e.target.value;
+                      onChangeMetadata({ ...metadata, title: newTitle });
+                      if (newTitle.trim().toLowerCase() === 'ancient bloodline') {
+                        onUnlockSecretThemes?.();
+                      }
+                    }}
+                    placeholder="e.g. Ancient Bloodline or The Chronicle of Bess"
+                    className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500 transition-colors"
                   />
+                  {!isSecretUnlocked && (
+                    <p className="text-[11px] text-stone-500 mt-1 italic">
+                      Tip: Enter title "Ancient Bloodline" to unlock exclusive hidden themes.
+                    </p>
+                  )}
                 </div>
 
                 <div className="sm:col-span-2">

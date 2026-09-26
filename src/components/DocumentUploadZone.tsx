@@ -11,6 +11,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Library,
 } from 'lucide-react';
 import { readUploadedDocument, extractInitialMetadata } from '../utils/fileReader';
 import { cleanChapterCraftExportedText } from '../utils/chaptercraftImporter';
@@ -26,6 +27,7 @@ interface DocumentUploadZoneProps {
   onClose: () => void;
   onDocumentLoaded: (result: DocumentUploadResult, autoMeta?: Partial<BookMetadata>) => void;
   onLoadSample: () => void;
+  onOpenOmnibus?: (initialFiles?: File[]) => void;
 }
 
 export function DocumentUploadZone({
@@ -33,6 +35,7 @@ export function DocumentUploadZone({
   onClose,
   onDocumentLoaded,
   onLoadSample,
+  onOpenOmnibus,
 }: DocumentUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [pasteText, setPasteText] = useState('');
@@ -64,6 +67,12 @@ export function DocumentUploadZone({
     setErrorMessage(null);
 
     const files = e.dataTransfer.files;
+    if (files && files.length > 1 && onOpenOmnibus) {
+      // Multiple books dropped at once! Forward to Omnibus modal
+      onClose();
+      onOpenOmnibus(Array.from(files));
+      return;
+    }
     if (files && files.length > 0) {
       await processFile(files[0]);
     }
@@ -71,6 +80,13 @@ export function DocumentUploadZone({
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
+    if (files && files.length > 1 && onOpenOmnibus) {
+      // Multiple files selected! Forward to Omnibus modal
+      const fileList = Array.from(files);
+      onClose();
+      onOpenOmnibus(fileList);
+      return;
+    }
     if (files && files.length > 0) {
       await processFile(files[0]);
     }
@@ -209,6 +225,7 @@ export function DocumentUploadZone({
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   accept={getAllAcceptExtensions()}
                   onChange={handleFileChange}
                   className="hidden"
@@ -223,10 +240,10 @@ export function DocumentUploadZone({
                 </div>
 
                 <p className="text-base font-medium text-stone-100">
-                  {isLoading ? 'Parsing and extracting chapters...' : 'Drop your document here, or click to browse'}
+                  {isLoading ? 'Parsing and extracting chapters...' : 'Drop your document(s) here, or click to browse'}
                 </p>
                 <p className="text-xs text-stone-400 mt-1 max-w-md">
-                  Works with all major and historical text formats: Word, EPUB, Markdown, Plain Text, HTML, TeX, ODT, AbiWord, WordPerfect, and more.
+                  Single documents or multiple books (HTML, EPUB, Word, Markdown) to merge into an omnibus.
                 </p>
 
                 {/* Badges of common formats */}
@@ -244,6 +261,35 @@ export function DocumentUploadZone({
                   </span>
                 </div>
               </div>
+
+              {/* Multi-Book Omnibus Callout Banner */}
+              {onOpenOmnibus && (
+                <div className="p-3.5 bg-gradient-to-r from-amber-500/10 via-stone-900 to-amber-500/10 border border-amber-500/30 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+                      <Library className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-stone-200">
+                        Need to merge multiple books into 1 file?
+                      </p>
+                      <p className="text-[11px] text-stone-400">
+                        Input 2, 3, or more HTML files, reorder where you want each, and create an omnibus edition.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenOmnibus();
+                    }}
+                    className="shrink-0 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded-lg text-xs transition-colors shadow-xs"
+                  >
+                    Open Multi-Book Binder
+                  </button>
+                </div>
+              )}
 
               {/* Supported Formats Drawer Toggle */}
               <div className="rounded-lg border border-stone-800 bg-stone-950/60 overflow-hidden">

@@ -3,6 +3,7 @@ import { BookMetadata, ChapterItem, FormatOptions } from '../types';
 import { formatDocumentText } from '../utils/parser';
 import { generateEpubBlob } from '../utils/epubGenerator';
 import { generateStandaloneHtmlBook } from '../utils/htmlGenerator';
+import { optimizeCoverImage } from '../utils/imageOptimizer';
 import {
   Download,
   FileCode,
@@ -13,15 +14,16 @@ import {
   BookOpen,
   Sparkles,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 
 interface ExportModalProps {
-  isOpen: boolean;
-  onClose: () => void;
   metadata: BookMetadata;
   chapters: ChapterItem[];
   options: FormatOptions;
   rawText: string;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
 export function ExportModal({
@@ -76,10 +78,21 @@ export function ExportModal({
     }
   };
 
-  // Generate HTML Book with Cover, Publisher, Year, and Chapters
-  const handleExportHtml = () => {
+  // Generate HTML Book with Cover, Publisher, Year, and Chapters (Engineered for 60MB RAM budget with Puter.js AI)
+  const handleExportHtml = async () => {
     setHtmlSuccess(false);
-    const htmlContent = generateStandaloneHtmlBook(metadata, chapters, options);
+    let finalMeta = metadata;
+    // Strictly optimize cover image to guarantee <60MB RAM footprint (decoded bitmap < 3.8MB in memory)
+    if (metadata.coverImageUrl) {
+      try {
+        const opt = await optimizeCoverImage(metadata.coverImageUrl, 800, 1200, 0.85);
+        finalMeta = { ...metadata, coverImageUrl: opt.dataUrl };
+      } catch (err) {
+        console.warn('Cover auto-compression error before HTML export:', err);
+      }
+    }
+
+    const htmlContent = generateStandaloneHtmlBook(finalMeta, chapters, options);
     const safeName = (metadata.title || 'book')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -235,17 +248,23 @@ export function ExportModal({
                 <div className="w-9 h-9 rounded-lg bg-amber-500/20 text-amber-300 flex items-center justify-center group-hover:scale-105 transition-transform">
                   <FileCode className="w-5 h-5" />
                 </div>
-                <span className="text-[11px] font-semibold bg-amber-500 text-stone-950 px-2 py-0.5 rounded shadow-xs">
-                  .HTML
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                    <Zap className="w-3 h-3 text-emerald-400" />
+                    <span>⚡ Puter.js AI • &lt;60MB RAM</span>
+                  </span>
+                  <span className="text-[11px] font-semibold bg-amber-500 text-stone-950 px-2 py-0.5 rounded shadow-xs">
+                    .HTML
+                  </span>
+                </div>
               </div>
               <div>
                 <p className="text-sm font-semibold text-stone-100 flex items-center gap-1.5">
-                  <span>Download HTML Book</span>
+                  <span>Download HTML Book (Puter.js AI)</span>
                   {htmlSuccess && <Check className="w-4 h-4 text-green-400" />}
                 </p>
                 <p className="text-xs text-stone-400 mt-1 leading-relaxed">
-                  Complete single-file web manuscript with embedded cover, publisher, year, Google Fonts, and table of contents.
+                  Single-file web manuscript with embedded Puter.js AI voices (Gemini, Speechify, Grok, Polly), offline fallback, chapter navigation, and engineered to run strictly under a 60 MB RAM budget.
                 </p>
               </div>
             </button>

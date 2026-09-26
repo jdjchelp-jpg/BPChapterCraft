@@ -14,10 +14,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  Check,
-  Radio,
   Sliders,
+  CloudLightning,
+  Laptop,
+  LogIn,
+  CheckCircle,
 } from 'lucide-react';
+import { PUTER_VOICES, PuterVoice, isPuterSignedIn, signInToPuter } from '../utils/puterTTS';
 
 interface BookSidePanelProps {
   isOpen: boolean;
@@ -41,6 +44,11 @@ interface BookSidePanelProps {
   autoAdvance: boolean;
   onChangeAutoAdvance: (val: boolean) => void;
   activeParaIndex: number | null;
+  ttsEngineMode: 'puter' | 'browser';
+  onChangeTtsEngineMode: (mode: 'puter' | 'browser') => void;
+  selectedPuterVoiceId: string;
+  onSelectPuterVoiceId: (id: string) => void;
+  puterAvailable: boolean;
 }
 
 export function BookSidePanel({
@@ -65,6 +73,11 @@ export function BookSidePanel({
   autoAdvance,
   onChangeAutoAdvance,
   activeParaIndex,
+  ttsEngineMode,
+  onChangeTtsEngineMode,
+  selectedPuterVoiceId,
+  onSelectPuterVoiceId,
+  puterAvailable,
 }: BookSidePanelProps) {
   const [activeTab, setActiveTab] = useState<'toc' | 'tts'>('toc');
   const [searchQuery, setSearchQuery] = useState('');
@@ -75,10 +88,14 @@ export function BookSidePanel({
     const q = searchQuery.toLowerCase();
     return chapters
       .map((ch, idx) => ({ ch, idx }))
-      .filter(({ ch }) => ch.cleanTitle.toLowerCase().includes(q) || (ch.prefix && ch.prefix.toLowerCase().includes(q)));
+      .filter(
+        ({ ch }) =>
+          ch.cleanTitle.toLowerCase().includes(q) ||
+          (ch.prefix && ch.prefix.toLowerCase().includes(q))
+      );
   }, [chapters, searchQuery]);
 
-  // Categorize voices into models: Neural/Natural HD vs Natural English vs Standard
+  // Categorize browser voices
   const categorizedVoices = useMemo(() => {
     const neuralHD: { voice: SpeechSynthesisVoice; index: number }[] = [];
     const naturalStudio: { voice: SpeechSynthesisVoice; index: number }[] = [];
@@ -119,6 +136,22 @@ export function BookSidePanel({
     return { neuralHD, naturalStudio, standard };
   }, [voices]);
 
+  // Categorize Puter AI voices by provider
+  const categorizedPuterVoices = useMemo(() => {
+    const gemini = PUTER_VOICES.filter((v) => v.provider === 'gemini');
+    const xAI = PUTER_VOICES.filter((v) => v.provider === 'xai');
+    const speechify = PUTER_VOICES.filter((v) => v.provider === 'speechify');
+    const openAI = PUTER_VOICES.filter((v) => v.provider === 'openai');
+    const polly = PUTER_VOICES.filter((v) => v.provider === 'aws-polly');
+    const elevenLabs = PUTER_VOICES.filter((v) => v.provider === 'elevenlabs');
+    return { gemini, xAI, speechify, openAI, polly, elevenLabs };
+  }, []);
+
+  const activePuterVoice = useMemo(
+    () => PUTER_VOICES.find((v) => v.id === selectedPuterVoiceId) || PUTER_VOICES[0],
+    [selectedPuterVoiceId]
+  );
+
   const currentChapter = chapters[currentChapterIndex];
 
   if (!isOpen) return null;
@@ -145,8 +178,8 @@ export function BookSidePanel({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-400 hover:text-stone-200 transition-colors"
-            title="Close Panel (Esc)"
+            className="p-1 rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors"
+            title="Close panel"
           >
             <X className="w-4 h-4" />
           </button>
@@ -174,7 +207,7 @@ export function BookSidePanel({
             }`}
           >
             <Volume2 className="w-3.5 h-3.5" />
-            <span>Voice Models (TTS)</span>
+            <span>AI Voice & TTS</span>
             {isSpeaking && (
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             )}
@@ -337,58 +370,182 @@ export function BookSidePanel({
               </button>
             </div>
 
-            {/* Voice Model Selector */}
+            {/* Engine Selection: Puter Cloud AI vs Browser Native */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-stone-300 flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Speech Voice & Model</span>
-                </span>
-                <span className="text-[10px] text-stone-500 font-mono">
-                  {voices.length} detected
+                <span>Voice Engine</span>
+                <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Free & Unlimited
                 </span>
               </label>
 
-              <select
-                value={selectedVoiceIndex}
-                onChange={(e) => onSelectVoice(parseInt(e.target.value, 10))}
-                className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2.5 text-xs text-stone-100 focus:outline-none focus:border-amber-500"
-              >
-                {categorizedVoices.neuralHD.length > 0 && (
-                  <optgroup label="⭐ Neural & Studio High-Definition Models">
-                    {categorizedVoices.neuralHD.map(({ voice, index }) => (
-                      <option key={index} value={index}>
-                        ⭐ [Neural HD] {voice.name} ({voice.lang})
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-
-                {categorizedVoices.naturalStudio.length > 0 && (
-                  <optgroup label="🎭 Natural English Literary Voices">
-                    {categorizedVoices.naturalStudio.map(({ voice, index }) => (
-                      <option key={index} value={index}>
-                        🎭 [Natural] {voice.name} ({voice.lang})
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-
-                {categorizedVoices.standard.length > 0 && (
-                  <optgroup label="🎙️ Standard Voices">
-                    {categorizedVoices.standard.map(({ voice, index }) => (
-                      <option key={index} value={index}>
-                        🎙️ {voice.name} ({voice.lang})
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-
-              <p className="text-[11px] text-stone-500">
-                ⭐ Prioritizes high-definition neural and studio speech models available in your browser engine.
-              </p>
+              <div className="grid grid-cols-2 gap-2 bg-stone-950 p-1 rounded-lg border border-stone-800">
+                <button
+                  onClick={() => onChangeTtsEngineMode('puter')}
+                  className={`py-1.5 px-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                    ttsEngineMode === 'puter'
+                      ? 'bg-amber-500 text-stone-950 shadow-xs'
+                      : 'text-stone-400 hover:text-stone-200 hover:bg-stone-850'
+                  }`}
+                >
+                  <CloudLightning className="w-3.5 h-3.5" />
+                  <span>Puter AI Cloud</span>
+                </button>
+                <button
+                  onClick={() => onChangeTtsEngineMode('browser')}
+                  className={`py-1.5 px-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                    ttsEngineMode === 'browser'
+                      ? 'bg-amber-500 text-stone-950 shadow-xs'
+                      : 'text-stone-400 hover:text-stone-200 hover:bg-stone-850'
+                  }`}
+                >
+                  <Laptop className="w-3.5 h-3.5" />
+                  <span>Browser Native</span>
+                </button>
+              </div>
             </div>
+
+            {/* Voice Model Selector: Puter AI Mode */}
+            {ttsEngineMode === 'puter' && (
+              <div className="space-y-2 bg-stone-950/80 p-3 rounded-xl border border-stone-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-stone-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Puter AI Speech Model</span>
+                  </span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 font-mono">
+                    {activePuterVoice.badge}
+                  </span>
+                </div>
+
+                <select
+                  value={selectedPuterVoiceId}
+                  onChange={(e) => onSelectPuterVoiceId(e.target.value)}
+                  className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-xs text-stone-100 focus:outline-none focus:border-amber-500"
+                >
+                  <optgroup label="🔮 Google Gemini AI Voices (Natural & Expressive)">
+                    {categorizedPuterVoices.gemini.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.lang}) - {v.badge}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="⚡ xAI Grok TTS Models">
+                    {categorizedPuterVoices.xAI.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.lang}) - {v.badge}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="🎧 Speechify Simba Models (Audiobook Premier)">
+                    {categorizedPuterVoices.speechify.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.lang}) - {v.badge}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="🌟 OpenAI Studio Models">
+                    {categorizedPuterVoices.openAI.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.lang}) - {v.badge}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="📖 AWS Polly Neural & Long-form Audio">
+                    {categorizedPuterVoices.polly.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.lang}) - {v.badge}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="🎭 ElevenLabs Expressive Models">
+                    {categorizedPuterVoices.elevenLabs.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.lang}) - {v.badge}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+
+                <div className="p-2.5 rounded-lg bg-stone-900 border border-stone-800 text-[11px] text-stone-300 flex flex-col gap-0.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-amber-400">{activePuterVoice.name}</span>
+                    <span className="text-[10px] text-stone-400 font-mono">{activePuterVoice.provider.toUpperCase()}</span>
+                  </div>
+                  <p className="text-stone-400 text-[11px] leading-relaxed">{activePuterVoice.description}</p>
+                </div>
+
+                {/* Free Puter Account / Login Helper */}
+                <div className="pt-1 flex items-center justify-between text-[11px] text-stone-400">
+                  <span>Free unlimited TTS</span>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await signInToPuter();
+                      } catch (e) {
+                        console.warn('Puter sign in:', e);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 underline font-medium"
+                  >
+                    <LogIn className="w-3 h-3" />
+                    <span>{isPuterSignedIn() ? 'Puter Connected' : 'Connect Puter (Free)'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Voice Model Selector: Browser Native Mode */}
+            {ttsEngineMode === 'browser' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-stone-300 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Browser Speech Voice</span>
+                  </span>
+                  <span className="text-[10px] text-stone-500 font-mono">
+                    {voices.length} detected
+                  </span>
+                </label>
+
+                <select
+                  value={selectedVoiceIndex}
+                  onChange={(e) => onSelectVoice(parseInt(e.target.value, 10))}
+                  className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2.5 text-xs text-stone-100 focus:outline-none focus:border-amber-500"
+                >
+                  {categorizedVoices.neuralHD.length > 0 && (
+                    <optgroup label="⭐ Neural & Studio High-Definition Models">
+                      {categorizedVoices.neuralHD.map(({ voice, index }) => (
+                        <option key={index} value={index}>
+                          ⭐ [Neural HD] {voice.name} ({voice.lang})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+
+                  {categorizedVoices.naturalStudio.length > 0 && (
+                    <optgroup label="🎭 Natural English Literary Voices">
+                      {categorizedVoices.naturalStudio.map(({ voice, index }) => (
+                        <option key={index} value={index}>
+                          🎭 [Natural] {voice.name} ({voice.lang})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+
+                  {categorizedVoices.standard.length > 0 && (
+                    <optgroup label="🎙️ Standard Voices">
+                      {categorizedVoices.standard.map(({ voice, index }) => (
+                        <option key={index} value={index}>
+                          🎙️ {voice.name} ({voice.lang})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+            )}
 
             {/* Speed / Rate Slider */}
             <div className="space-y-2">
@@ -427,22 +584,24 @@ export function BookSidePanel({
               </div>
             </div>
 
-            {/* Pitch Slider */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold text-stone-300">
-                <span>Voice Warmth / Pitch</span>
-                <span className="font-mono text-stone-400">{pitch.toFixed(2)}</span>
+            {/* Pitch Slider (Browser native only) */}
+            {ttsEngineMode === 'browser' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-stone-300">
+                  <span>Voice Warmth / Pitch</span>
+                  <span className="font-mono text-stone-400">{pitch.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.75"
+                  max="1.25"
+                  step="0.05"
+                  value={pitch}
+                  onChange={(e) => onChangePitch(parseFloat(e.target.value))}
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
               </div>
-              <input
-                type="range"
-                min="0.75"
-                max="1.25"
-                step="0.05"
-                value={pitch}
-                onChange={(e) => onChangePitch(parseFloat(e.target.value))}
-                className="w-full accent-amber-500 cursor-pointer"
-              />
-            </div>
+            )}
 
             {/* Auto Advance Toggle */}
             <label className="flex items-center gap-2.5 p-3 rounded-lg bg-stone-950 border border-stone-800 text-xs text-stone-300 cursor-pointer hover:border-stone-700 transition-colors">
@@ -462,12 +621,14 @@ export function BookSidePanel({
                   isSpeaking ? 'bg-green-400 animate-pulse' : 'bg-stone-600'
                 }`}
               />
-              <span>
+              <span className="truncate">
                 {isSpeaking
-                  ? `Speaking paragraph ${(activeParaIndex ?? 0) + 1}...`
+                  ? `Speaking paragraph ${(activeParaIndex ?? 0) + 1} (${ttsEngineMode === 'puter' ? activePuterVoice.name : 'Browser'})...`
                   : isPaused
                   ? 'Voice playback paused'
-                  : 'Synthesizer ready'}
+                  : ttsEngineMode === 'puter'
+                  ? `Ready (${activePuterVoice.badge})`
+                  : 'Browser synthesizer ready'}
               </span>
             </div>
           </div>
